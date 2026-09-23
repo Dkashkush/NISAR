@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -96,7 +97,10 @@ def stack_rates(ifgs: list[Interferogram], template: xr.DataArray, coherence_thr
     noise = float("nan")
     if len(ifgs) >= 2:
         resid = los - rate[None] * years[:, None, None]
-        sigma_pair = np.nanmedian(np.nanstd(resid, axis=0)[n_valid >= 2]) if (n_valid >= 2).any() else np.nan
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)  # all-NaN pixels
+            spread = np.nanstd(resid, axis=0)
+        sigma_pair = np.nanmedian(spread[n_valid >= 2]) if (n_valid >= 2).any() else np.nan
         if np.isfinite(sigma_pair):
             noise = float(sigma_pair * np.sqrt(len(ifgs)) / years.sum())
 
@@ -157,17 +161,25 @@ def choose_reference(a: RateMap, b: RateMap, lonlat: tuple[float, float] | None 
                                                  "the nearest pixel that is."))
         auto = False
     else:
+        # Assume most of the AOI is stable: prefer coherent, locally smooth pixels whose rate is close to the
+        # scene median in *both* datasets (a high-coherence city that is itself subsiding scores badly).
         joint_coh = np.fmin(np.nan_to_num(a.coherence.values), np.nan_to_num(b.coherence.values))
         size = (window, window)
-        mean_a = ndimage.uniform_filter(np.nan_to_num(ra), size)
-        mean_b = ndimage.uniform_filter(np.nan_to_num(rb), size)
-        var = (ndimage.uniform_filter(np.nan_to_num(ra) ** 2, size) - mean_a ** 2
-               + ndimage.uniform_filter(np.nan_to_num(rb) ** 2, size) - mean_b ** 2)
         frac_valid = ndimage.uniform_filter(both.astype(float), size)
-        score = np.where(both & (frac_valid > 0.9), ndimage.uniform_filter(joint_coh, size) - 50.0 * var, -np.inf)
-        if not np.isfinite(score).any():
-            score = np.where(both, joint_coh, -np.inf)
-        row, col = np.unravel_index(int(np.argmax(score)), score.shape)
+        cost = np.zeros(ra.shape)
+        for r in (ra, rb):
+            r0 = np.where(both, r, 0.0)
+            mean = ndimage.uniform_filter(r0, size) / np.maximum(frac_valid, 1e-6)
+            sd = np.sqrt(np.maximum(ndimage.uniform_filter(r0 ** 2, size) / np.maximum(frac_valid, 1e-6)
+                                    - mean ** 2, 0))
+            spread = float(np.nanstd(r[both])) or 1.0
+            cost += (np.abs(mean - np.nanmedian(r[both])) + sd) / spread
+        smooth_coh = ndimage.uniform_filter(joint_coh, size)
+        good = both & (frac_valid > 0.9) & (smooth_coh >= np.nanpercentile(smooth_coh[both], 50))
+        if not good.any():
+            good = both
+        cost = np.where(good, cost - smooth_coh, np.inf)
+        row, col = np.unravel_index(int(np.argmin(cost)), cost.shape)
         auto = True
     lon, lat = to_ll.transform(xs[col], ys[row])
     return Reference(x=float(xs[col]), y=float(ys[row]), lon=float(lon), lat=float(lat), row=int(row),
@@ -185,7 +197,7 @@ def apply_reference(rm: RateMap, ref: Reference, window: int = 3) -> float:
 
 def reference_notes(ref: Reference, a: RateMap, b: RateMap) -> list[Note]:
     notes = list(ref.notes)
-    how = "chosen automatically (high coherence in both, locally smooth)" if ref.auto else "set by you"
+    how = "chosen automatically: coherent in both, locally smooth, and close to the scene-wide median rate" if ref.auto else "set by you"
     notes.append(Note("reference", INFO, f"Both rate maps are referenced to the same point at "
                                          f"{ref.lat:.4f}°N, {ref.lon:.4f}°E ({how}). InSAR measures relative "
                                          "motion, so this point is assumed stable; everything is relative to it."))

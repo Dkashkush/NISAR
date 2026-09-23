@@ -1,0 +1,25 @@
+# Mexico City: one of the fastest-subsiding cities on Earth (groundwater extraction from a lake-bed aquifer).
+# Real-data example. Needs a free NASA Earthdata login (see README) and downloads several GB.
+name: mexico_city
+aoi: [-99.25, 19.25, -98.95, 19.55]   # west, south, east, north (degrees)
+start: 2025-10-01
+end: 2026-09-01
+
+nisar_source: ASF                # NISAR L2 GUNW from ASF
+nisar_flight_direction: null     # ASCENDING / DESCENDING / null = pick the geometry with most data
+nisar_apply_ionosphere: true
+
+s1_source: ARIA_S1_GUNW          # ARIA_S1_GUNW | OPERA_DISP_S1 (North America) | LOCAL (e.g. HyP3 zips)
+# s1_dir: data/hyp3_jobs         # when s1_source: LOCAL
+s1_flight_direction: null
+
+max_pairs: 8                     # per sensor
+min_span_days: 12
+max_span_days: 96
+coherence_threshold: 0.35
+resolution_m: 90
+project_to_vertical: true
+reference_lonlat: null           # e.g. [-99.19, 19.33]: a point on stable bedrock (Sierra de Guadalupe, etc.)
+
+data_dir: data
+output_dir: outputs

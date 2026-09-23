@@ -1,0 +1,10 @@
+# Use products you already have: NISAR GUNW .h5 files, plus Sentinel-1 HyP3 InSAR zips ordered in ASF Vertex
+# (works anywhere on Earth), ARIA GUNW .nc or OPERA DISP-S1 .nc files.
+name: my_area
+aoi: [77.95, 30.20, 78.25, 30.45]
+nisar_source: LOCAL
+nisar_dir: data/my_area/nisar
+s1_source: LOCAL
+s1_dir: data/my_area/sentinel1
+coherence_threshold: 0.35
+resolution_m: 90
