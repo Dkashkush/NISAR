@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sarcompare"
+version = "0.1.0"
+description = "Download NISAR and Sentinel-1 InSAR products over one region and compare them side by side, with interpretation."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "xarray>=2023.1",
+    "h5py>=3.8",
+    "rasterio>=1.3",
+    "rioxarray>=0.15",
+    "pyproj>=3.5",
+    "shapely>=2.0",
+    "matplotlib>=3.7",
+    "pyyaml>=6.0",
+    "asf_search>=8.0",
+]
+
+[project.optional-dependencies]
+app = ["streamlit>=1.30"]
+dev = ["pytest>=7"]
+
+[project.scripts]
+sarcompare = "sarcompare.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["sarcompare*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
