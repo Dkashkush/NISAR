@@ -42,7 +42,7 @@ class Scene:
         cx, cy = (w + e) / 2, (s + n) / 2
         self.city = (cx + 0.22 * (e - w), cy - 0.2 * (n - s))
         self.slide = (cx - 0.2 * (e - w), cy + 0.28 * (n - s))
-        self.lake = (cx - 0.3 * (e - w), cy - 0.3 * (n - s))
+        self.lake = (cx - 0.12 * (e - w), cy - 0.15 * (n - s))
         # land cover on a coarse helper grid: forest in the north, city around the bowl
         self.lc_res = 100.0
         self.lx = np.arange(w - 6000, e + 6000, self.lc_res)

@@ -21,5 +21,16 @@ resolution_m: 90
 project_to_vertical: true
 reference_lonlat: null           # e.g. [-99.19, 19.33]: a point on stable bedrock (Sierra de Guadalupe, etc.)
 
+# Validation against published data
+gnss: NGL                        # Nevada Geodetic Lab stations inside the AOI (Mexico City has several)
+# published_maps:                # e.g. a LiCSAR/COMET velocity GeoTIFF for a frame covering the city
+#   - path: data/published/licsar_vel.tif
+#     label: LiCSAR/COMET velocity
+#     units: mm/yr
+#     component: LOS
+#     sign: 1                    # + = toward the satellite
+#     incidence_deg: 39
+#     period: 2016-2024
+
 data_dir: data
 output_dir: outputs

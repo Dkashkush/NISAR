@@ -48,6 +48,21 @@ def cmd_demo(args) -> int:
     return 0
 
 
+def cmd_gui(args) -> int:
+    """Open the graphical interface in the web browser (it runs locally; nothing is uploaded)."""
+    from pathlib import Path
+
+    try:
+        from streamlit.web import cli as stcli
+    except ImportError:
+        print("The GUI needs streamlit: pip install -e \".[app]\"", file=sys.stderr)
+        return 1
+    gui = Path(__file__).with_name("gui.py")
+    sys.argv = ["streamlit", "run", str(gui), "--server.port", str(args.port),
+                "--browser.gatherUsageStats", "false", "--server.headless", "true" if args.no_browser else "false"]
+    return stcli.main()
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="sarcompare", description="Compare NISAR and Sentinel-1 InSAR over one area.")
     ap.add_argument("--debug", action="store_true", help="show full tracebacks")
@@ -64,6 +79,10 @@ def main(argv=None) -> int:
     d.add_argument("--data-dir", default="data/demo")
     d.add_argument("--output-dir", default="outputs")
     d.set_defaults(func=cmd_demo)
+    g = sub.add_parser("gui", help="open the graphical interface in your web browser")
+    g.add_argument("--port", type=int, default=8501)
+    g.add_argument("--no-browser", action="store_true", help="do not open a browser window automatically")
+    g.set_defaults(func=cmd_gui)
     args = ap.parse_args(argv)
     try:
         return args.func(args)
