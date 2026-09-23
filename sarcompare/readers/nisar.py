@@ -63,6 +63,21 @@ def _epsg(h5: h5py.File, group: str) -> int:
     return int(np.asarray(ds[()]).ravel()[0])
 
 
+def _decode_gunw_mask(ds: h5py.Dataset, rows: slice, cols: slice) -> np.ndarray:
+    """True where both acquisitions have valid data and the pixel is not water.
+
+    GUNW ``mask`` layout (as decoded by MintPy's prep_nisar): low byte = W*100 + R*10 + S, where W=1 marks
+    water and R/S are the reference/secondary subswath numbers (0 = no valid sample).
+    """
+    raw = ds[rows, cols]
+    fill = ds.attrs.get("_FillValue")
+    ok = np.ones(raw.shape, bool)
+    if fill is not None:
+        ok &= raw != np.asarray(fill).ravel()[0]
+    bits = np.where(ok, raw.astype(np.int64) & 0xFF, 0)
+    return ok & ((bits // 10) % 10 > 0) & (bits % 10 > 0) & (bits // 100 != 1)
+
+
 def _pick_phase_path(paths: list[str], polarization: str | None) -> str:
     cands = [p for p in _named(paths, "unwrappedPhase") if "pixelOffsets" not in p]
     if not cands:
@@ -137,6 +152,11 @@ def read_nisar_gunw(path: str | Path, aoi: AOI, polarization: str | None = None,
         coh_path = f"{pol_group}/coherenceMagnitude"
         coh = apply_fill(h5[coh_path][rows, cols], h5[coh_path].attrs.get("_FillValue")) if coh_path in h5 \
             else np.full_like(phase, np.nan)
+        mask_path = _sibling_upwards(h5, pol_group, "mask")
+        if mask_path is not None:
+            valid = _decode_gunw_mask(h5[mask_path], rows, cols)
+            if valid.shape == phase.shape:
+                phase = np.where(valid, phase, np.nan)
         cc_path = f"{pol_group}/connectedComponents"
         if cc_path in h5:
             cc = h5[cc_path][rows, cols]

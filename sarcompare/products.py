@@ -16,6 +16,37 @@ WAVELENGTH_S1_C = 0.05546576  # C-band, 5.405 GHz
 
 _DT_PATTERN = re.compile(r"(?<!\d)(\d{8})(?:T(\d{6}))?(?!\d)")
 
+# Official file-name patterns (NISAR pattern as in opera-utils' NISAR_GUNW_FILE_REGEX). Each yields the two
+# acquisition dates plus, where the name carries it, the viewing geometry.
+_NAME_PATTERNS = [
+    # NISAR_L2_PR_GUNW_004_151_A_011_005_4000_SH_20251108T155041_20251108T155058_20251120T..._..._X05009_N_F_J_001
+    re.compile(r"NISAR_L\d_[A-Z]{2}_GUNW_\d{3}_(?P<track>\d{3})_(?P<dir>[AD])_(?P<frame>\d{3})_\d{3}_\d{4}_"
+               r"[A-Z]{2,4}_(?P<d1>\d{8})T\d{6}_\d{8}T\d{6}_(?P<d2>\d{8})T\d{6}_"),
+    # S1-GUNW-A-R-064-tops-20210723_20210711-015000-00119W_00033N-PP-6267-v2_0_4 (later date first)
+    re.compile(r"S1-GUNW-(?P<dir>[AD])-R-(?P<track>\d{3})-tops-(?P<d2>\d{8})_(?P<d1>\d{8})"),
+    # OPERA_L3_DISP-S1_IW_F11115_VV_20160705T140755Z_20160729T140756Z_v1.0_...
+    re.compile(r"DISP-S1_IW_F(?P<frame>\d+)_[A-Z]{2}_(?P<d1>\d{8})T\d{6}Z_(?P<d2>\d{8})T\d{6}Z"),
+    # HyP3 GAMMA: S1AA_20161223T070700_20170116T070658_VVP024_INT80_G_ueF_74C2
+    re.compile(r"^S1[ABCD]{2}_(?P<d1>\d{8})T\d{6}_(?P<d2>\d{8})T\d{6}_"),
+    # HyP3 ISCE burst / multi-burst: S1_136231_IW2_20200604_20200616_VV_INT80_10C8
+    re.compile(r"^S1_.*?_(?P<d1>\d{8})_(?P<d2>\d{8})_[VH]{2}_INT"),
+]
+
+
+def parse_name(name: str) -> dict:
+    """Dates and geometry from an official product file name: {'date1','date2','direction','track','frame'}."""
+    for pat in _NAME_PATTERNS:
+        m = pat.search(name)
+        if m:
+            g = m.groupdict()
+            d1 = datetime.strptime(g["d1"], "%Y%m%d").date()
+            d2 = datetime.strptime(g["d2"], "%Y%m%d").date()
+            direction = {"A": "ASCENDING", "D": "DESCENDING"}.get(g.get("dir") or "")
+            return {"date1": min(d1, d2), "date2": max(d1, d2), "direction": direction,
+                    "track": int(g["track"]) if g.get("track") else None,
+                    "frame": int(g["frame"]) if g.get("frame") else None}
+    return {}
+
 
 def parse_dates_from_name(name: str) -> list[date]:
     """Return the distinct acquisition dates found in a product file name, in the order they appear.
@@ -39,6 +70,9 @@ def parse_dates_from_name(name: str) -> list[date]:
 
 def pair_dates_from_name(name: str) -> tuple[date, date] | None:
     """(earlier, later) acquisition dates of an interferometric pair, or None if not found."""
+    known = parse_name(name)
+    if known:
+        return known["date1"], known["date2"]
     dates = parse_dates_from_name(name)
     if len(dates) < 2:
         return None

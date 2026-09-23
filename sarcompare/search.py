@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .aoi import AOI
 from .notes import GOOD, INFO, WARN, Note
-from .products import NISAR, SENTINEL1, Product, pair_dates_from_name
+from .products import NISAR, SENTINEL1, Product, pair_dates_from_name, parse_name
 
 NISAR_LAUNCH = date(2025, 7, 30)
 
@@ -119,18 +119,27 @@ def classify_file(path: Path) -> tuple[str, str] | None:
 
 
 def scan_local(folder: str | Path, sensor: str) -> list[Product]:
+    """Products in a folder. Viewing geometry is read from official file names so that ascending and
+    descending products are never mixed; a HyP3 zip and its unzipped folder count once."""
     folder = Path(folder)
     if not folder.exists():
         raise FileNotFoundError(f"Local product folder not found: {folder}")
-    out = []
-    for path in sorted(folder.iterdir()):
+    out, seen = [], set()
+    paths = sorted(folder.iterdir(), key=lambda p: (not p.is_dir(), p.name))  # prefer unzipped folders
+    for path in paths:
         kind = classify_file(path)
         if not kind or kind[0] != sensor:
             continue
-        dates = pair_dates_from_name(path.name)
-        out.append(Product(sensor=kind[0], product_type=kind[1], name=path.stem, local_path=path,
+        stem = path.name[:-4] if path.name.lower().endswith(".zip") else path.stem if path.is_file() else path.name
+        if stem in seen:
+            continue
+        seen.add(stem)
+        info = parse_name(path.name)
+        dates = (info["date1"], info["date2"]) if info else pair_dates_from_name(path.name)
+        out.append(Product(sensor=kind[0], product_type=kind[1], name=stem, local_path=path,
                            date1=dates[0] if dates else None, date2=dates[1] if dates else None,
-                           size_mb=_local_size_mb(path)))
+                           flight_direction=info.get("direction"), track=info.get("track"),
+                           frame=info.get("frame"), size_mb=_local_size_mb(path)))
     return out
 
 

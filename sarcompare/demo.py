@@ -42,6 +42,7 @@ class Scene:
         cx, cy = (w + e) / 2, (s + n) / 2
         self.city = (cx + 0.22 * (e - w), cy - 0.2 * (n - s))
         self.slide = (cx - 0.2 * (e - w), cy + 0.28 * (n - s))
+        self.lake = (cx - 0.3 * (e - w), cy - 0.3 * (n - s))
         # land cover on a coarse helper grid: forest in the north, city around the bowl
         self.lc_res = 100.0
         self.lx = np.arange(w - 6000, e + 6000, self.lc_res)
@@ -112,6 +113,9 @@ def write_nisar_gunw(path: Path, scene: Scene, d1: date, d2: date, res=80.0, noi
         u["xCoordinates"], u["yCoordinates"] = x, y
         proj = u.create_dataset("projection", data=np.uint32(scene.crs.to_epsg()))
         proj.attrs["epsg_code"] = scene.crs.to_epsg()
+        # GUNW validity mask: W*100 + R*10 + S (water flag, reference/secondary subswath); a small lake is water
+        lake = np.hypot(X - scene.lake[0], Y - scene.lake[1]) < 1200
+        u.create_dataset("mask", data=np.where(lake, 111, 11).astype("uint8"), compression="gzip")
         hh = u.create_group("HH")
         hh.create_dataset("unwrappedPhase", data=phase.astype("float32"), compression="gzip")
         hh.create_dataset("coherenceMagnitude", data=coh.astype("float32"), compression="gzip")
@@ -159,8 +163,9 @@ def make_demo_data(root: str | Path = "data/demo", seed: int = 7) -> tuple[Path,
     s1_dir.mkdir(parents=True, exist_ok=True)
     scene = Scene(AOI.from_bbox(*DEMO_BBOX, name="demo"), seed)
     for i, (d1, d2) in enumerate(_pairs(date(2025, 10, 10), 6, 48)):
-        name = (f"NISAR_L2_PR_GUNW_{i + 5:03d}_120_A_045_4020_SH_{d1:%Y%m%d}T123000_{d1:%Y%m%d}T123020_"
-                f"{d2:%Y%m%d}T123000_{d2:%Y%m%d}T123020_X05010_N_P_J_001.h5")
+        # official pattern: NISAR_L2_PR_GUNW_<refcycle>_<track>_<dir>_<frame>_<seccycle>_<bw>_<pol>_<4 times>_<crid>_...
+        name = (f"NISAR_L2_PR_GUNW_{4 * i + 5:03d}_120_A_045_{4 * i + 9:03d}_4000_SH_{d1:%Y%m%d}T123000_"
+                f"{d1:%Y%m%d}T123020_{d2:%Y%m%d}T123000_{d2:%Y%m%d}T123020_X05010_N_P_J_001.h5")
         write_nisar_gunw(nisar_dir / name, scene, d1, d2)
     for d1, d2 in _pairs(date(2025, 10, 4), 6, 48):
         name = f"S1-GUNW-A-R-114-tops-{d2:%Y%m%d}_{d1:%Y%m%d}-003012-00078E_00030N-PP-a1b2-v3_0_1.nc"

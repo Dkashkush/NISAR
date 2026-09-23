@@ -165,17 +165,24 @@ def read_hyp3_insar(path: str | Path, aoi: AOI, sign: float | None = None) -> In
     pad_x, pad_y = (e - w) * 0.05, (n - s_) * 0.05
     clip = dict(minx=w - pad_x, miny=s_ - pad_y, maxx=e + pad_x, maxy=n + pad_y)
     unw = unw.rio.clip_box(**clip)
+    corr = _open_tif(folder, "corr")
+    coh = corr.rio.clip_box(**clip).values if corr is not None else np.full(unw.shape, np.nan)
+    nodata = coh == 0  # HyP3 writes 0 outside the valid footprint
     los_da = _open_tif(folder, "los_disp")
     if los_da is not None and sign is None:
         los = los_da.rio.clip_box(**clip).values  # already metres, positive toward the sensor
     else:
         sgn = HYP3_PHASE_SIGN if sign is None else sign
         los = sgn * unw.values * WAVELENGTH_S1_C / (4 * np.pi)
-    corr = _open_tif(folder, "corr")
-    coh = corr.rio.clip_box(**clip).values if corr is not None else np.full(unw.shape, np.nan)
+    los = np.where(nodata, np.nan, los)
+    coh = np.where(nodata, np.nan, coh)
     theta = _open_tif(folder, "lv_theta")
-    if theta is not None:
-        inc = float(90.0 - np.degrees(np.nanmean(theta.rio.clip_box(**clip).values)))
+    th = theta.rio.clip_box(**clip).values.astype("float64") if theta is not None else None
+    if th is not None:
+        th[th == 0] = np.nan  # 0 = no data (same handling as MintPy's HyP3 loader)
+    if th is not None and np.isfinite(th).any():
+        # lv_theta is the look-vector elevation from horizontal, in radians
+        inc = float(90.0 - np.degrees(np.nanmean(th)))
     else:
         inc = DEFAULT_INCIDENCE
         notes.append(Note("load", WARN, f"HyP3 {date1}→{date2}: no lv_theta layer; assuming {inc}° incidence. "

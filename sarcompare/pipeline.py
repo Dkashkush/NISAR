@@ -120,7 +120,7 @@ class Pipeline:
                     ifg = read_product(p, self.aoi, nisar_polarization=cfg.nisar_polarization,
                                        nisar_apply_ionosphere=cfg.nisar_apply_ionosphere,
                                        nisar_sign=cfg.nisar_sign, s1_sign=cfg.s1_sign)
-                except ValueError as e:
+                except (ValueError, KeyError, OSError) as e:  # bad subset, missing layer, corrupt file
                     self.emit("load", f"Skipping {p.name}", [Note("load", WARN, f"Could not use {p.name}: {e}")])
                     continue
                 ifgs.append(ifg)
