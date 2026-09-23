@@ -53,7 +53,7 @@ def test_demo_end_to_end(demo_cfg):
     # the landslide under forest is found by NISAR only
     assert any(h.sensor == NISAR and h.seen_by_other == "no data" for h in c.hotspots)
     stages = {e.stage for e in events}
-    assert {"search", "load", "stack", "reference", "compare", "report"} <= stages
+    assert {"search", "load", "stack", "reference", "compare", "validate", "report"} <= stages
     report = Path(result.outputs["report"]).read_text()
     assert "Synthetic demo data" in report and "data:image/png;base64" in report
     metrics = json.loads(Path(result.outputs["metrics"]).read_text())

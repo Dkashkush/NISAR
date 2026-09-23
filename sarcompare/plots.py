@@ -57,7 +57,7 @@ def _extent(da):
     return [x.min() - dx, x.max() + dx, y.min() - dy, y.max() + dy]
 
 
-def _map_row(panels, cmap, vmin, vmax, cbar_label, ref: Reference | None, t, title):
+def _map_row(panels, cmap, vmin, vmax, cbar_label, ref: Reference | None, t, title, points=None):
     fig, axes = plt.subplots(1, len(panels), figsize=(4.2 * len(panels), 4.3), constrained_layout=True)
     _style(fig, axes, t)
     im = None
@@ -67,8 +67,10 @@ def _map_row(panels, cmap, vmin, vmax, cbar_label, ref: Reference | None, t, tit
         ax.set_xlabel("Easting (km)", fontsize=8)
         if ax is axes[0]:
             ax.set_ylabel("Northing (km)", fontsize=8)
-        if ref is not None:
+        if ref is not None and ref.mode == "point":
             ax.plot(ref.x / 1000, ref.y / 1000, marker="^", ms=9, mfc=t["ink"], mec=t["surface"], mew=1.5)
+        for px, py in points or []:
+            ax.plot(px / 1000, py / 1000, marker="o", ms=6, mfc="none", mec=t["ink"], mew=1.5)
     cb = fig.colorbar(im, ax=axes, shrink=0.85, pad=0.01)
     cb.set_label(cbar_label, color=t["ink2"], fontsize=8)
     cb.ax.tick_params(colors=t["muted"], labelsize=8)
@@ -77,7 +79,7 @@ def _map_row(panels, cmap, vmin, vmax, cbar_label, ref: Reference | None, t, tit
     return fig
 
 
-def rate_maps(a: RateMap, b: RateMap, c: Comparison, ref: Reference, theme="light"):
+def rate_maps(a: RateMap, b: RateMap, c: Comparison, ref: Reference, theme="light", stations=None):
     t = THEMES[theme]
     ra, rb = a.rate * 1000, b.rate * 1000
     vals = np.concatenate([ra.values[np.isfinite(ra.values)], rb.values[np.isfinite(rb.values)]])
@@ -85,8 +87,16 @@ def rate_maps(a: RateMap, b: RateMap, c: Comparison, ref: Reference, theme="ligh
     lim = max(lim, 5.0)
     comp = a.component
     panels = [(f"{a.sensor}", ra), (f"{b.sensor}", rb), (f"{a.sensor} − {b.sensor}", c.difference * 1000)]
+    points, extra = None, ""
+    if stations:
+        from pyproj import Transformer
+        tr = Transformer.from_crs("EPSG:4326", a.rate.rio.crs, always_xy=True)
+        points = [tr.transform(s.lon, s.lat) for s in stations]
+        extra = "; ○ = GNSS station"
     return _map_row(panels, _diverging(t), -lim, lim, f"{comp} rate (mm/yr) · blue = up/toward, red = down/away",
-                    ref, t, f"Mean {comp} displacement rate (▲ = reference point; grey = no reliable data)")
+                    ref, t, f"Mean {comp} displacement rate ({'▲ = reference point' if ref.mode == 'point' else 'zero = area median'}"
+                    f"{extra}; grey = no reliable data)",
+                    points)
 
 
 def coherence_maps(a: RateMap, b: RateMap, theme="light"):
@@ -180,3 +190,58 @@ def to_png(fig) -> bytes:
     fig.savefig(buf, format="png", dpi=130, facecolor=fig.get_facecolor())
     plt.close(fig)
     return buf.getvalue()
+
+
+def gnss_scatter(gv, sensors: list[str], theme="light"):
+    """InSAR vertical rate (offset removed) vs GNSS vertical rate at each station; 1:1 line = perfect."""
+    t = THEMES[theme]
+    fig, ax = plt.subplots(figsize=(5.2, 4.6), constrained_layout=True)
+    _style(fig, ax, t)
+    ax.set_facecolor(t["surface"])
+    markers = {"NISAR": "o", "Sentinel-1": "s"}
+    vals = []
+    for sensor in sensors:
+        st = [s for s in gv.stations if np.isfinite(s.insar.get(sensor, np.nan))]
+        if not st:
+            continue
+        off = gv.stats[sensor].offset_mm_yr
+        x = np.array([s.up_mm_yr for s in st])
+        y = np.array([s.insar[sensor] - off for s in st])
+        xe = np.array([s.up_sigma_mm_yr if np.isfinite(s.up_sigma_mm_yr) else 0 for s in st])
+        vals += list(x) + list(y)
+        rmse = gv.stats[sensor].rmse_mm_yr
+        lab = f"{sensor} (RMSE {rmse:.1f} mm/yr)" if np.isfinite(rmse) else sensor
+        ax.errorbar(x, y, xerr=xe, fmt=markers.get(sensor, "o"), ms=8, color=t["series"][sensor],
+                    mec=t["surface"], mew=1.5, elinewidth=1, ecolor=t["muted"], label=lab)
+    if len(gv.stations) <= 12:
+        for s in gv.stations:
+            ys = [s.insar[k] - gv.stats[k].offset_mm_yr for k in sensors if np.isfinite(s.insar.get(k, np.nan))]
+            if ys:
+                ax.annotate(s.site, (s.up_mm_yr, max(ys)), textcoords="offset points", xytext=(6, 4),
+                            fontsize=7, color=t["ink2"])
+    if vals:
+        lo, hi = min(vals), max(vals)
+        pad = (hi - lo) * 0.1 or 5
+        ax.plot([lo - pad, hi + pad], [lo - pad, hi + pad], color=t["muted"], ls="--", lw=1, label="1:1")
+        ax.set_xlim(lo - pad, hi + pad)
+        ax.set_ylim(lo - pad, hi + pad)
+        leg = ax.legend(frameon=False, fontsize=8, loc="upper left")
+        for txt in leg.get_texts():
+            txt.set_color(t["ink2"])
+    ax.grid(color=t["grid"], lw=0.5)
+    ax.set_axisbelow(True)
+    ax.set_xlabel("GNSS vertical rate (mm/yr)", fontsize=9)
+    ax.set_ylabel("InSAR vertical rate, offset removed (mm/yr)", fontsize=9)
+    ax.set_title(f"InSAR vs GNSS ({gv.source})", fontsize=10, loc="left", color=t["ink"])
+    return fig
+
+
+def published_panels(pv, sensors: list[str], ref: Reference, theme="light"):
+    """Published map, then each sensor minus the published map."""
+    t = THEMES[theme]
+    pub = pv.published
+    finite = pub.values[np.isfinite(pub.values)]
+    lim = max(float(np.nanpercentile(np.abs(finite), 98)) if finite.size else 10.0, 5.0)
+    panels = [(f"Published: {pv.label}", pub)] + [(f"{s} − published", pv.difference[s]) for s in sensors]
+    return _map_row(panels, _diverging(t), -lim, lim, "vertical rate / difference (mm/yr)", ref, t,
+                    f"Validation against a published velocity map ({pv.label})")

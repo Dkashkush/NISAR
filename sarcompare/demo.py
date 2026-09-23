@@ -170,11 +170,65 @@ def make_demo_data(root: str | Path = "data/demo", seed: int = 7) -> tuple[Path,
     for d1, d2 in _pairs(date(2025, 10, 4), 6, 48):
         name = f"S1-GUNW-A-R-114-tops-{d2:%Y%m%d}_{d1:%Y%m%d}-003012-00078E_00030N-PP-a1b2-v3_0_1.nc"
         write_aria_gunw(s1_dir / name, scene, d1, d2)
+    write_gnss_cache(root / "gnss", scene)
+    write_published_map(root / "published_velocity_demo.tif", scene)
     return nisar_dir, s1_dir
+
+
+# Synthetic GNSS stations: (site, fraction east, fraction north) across the AOI - in the bowl, at its edge,
+# in fields, in the city outskirts and one in the forest near the landslide.
+DEMO_STATIONS = [("DM01", 0.72, 0.30), ("DM02", 0.80, 0.42), ("DM03", 0.20, 0.20), ("DM04", 0.50, 0.12),
+                 ("DM05", 0.90, 0.15), ("DM06", 0.30, 0.78), ("DM07", 0.62, 0.55), ("DM08", 0.08, 0.50)]
+
+
+def write_gnss_cache(folder: Path, scene: Scene, start=date(2024, 1, 1), end=date(2026, 9, 1)):
+    """NGL-format DataHoldings.txt + daily .tenv3 files (same columns as the real ones)."""
+    folder.mkdir(parents=True, exist_ok=True)
+    to_ll = Transformer.from_crs(scene.crs, "EPSG:4326", always_xy=True)
+    rng = np.random.default_rng(11)
+    holdings = ["Sta Lat(deg) Long(deg) Hgt(m) X(m) Y(m) Z(m) Dtbeg Dtend Dtmod NumSol StaOrigName"]
+    days = [start + timedelta(days=k) for k in range((end - start).days + 1)]
+    header = ("site YYMMMDD yyyy.yyyy __MJD week d reflon _e0(m) __east(m) ____n0(m) _north(m) u0(m) ____up(m) "
+              "_ant(m) sig_e(m) sig_n(m) sig_u(m) __corr_en __corr_eu __corr_nu _latitude(deg) _longitude(deg) "
+              "__height(m)")
+    for site, fx, fy in DEMO_STATIONS:
+        x = scene.w + fx * (scene.e - scene.w)
+        y = scene.s + fy * (scene.n - scene.s)
+        lon, lat = to_ll.transform(x, y)
+        v_up = float(scene.vertical_rate(np.array([x]), np.array([y]))[0]) + 0.002  # + absolute frame offset
+        holdings.append(f"{site} {lat:.6f} {lon:.6f} 500.0 0 0 0 {start} {end} {end} {len(days)} {site}")
+        lines = [header]
+        for d in days:
+            t = d.year + (d.timetuple().tm_yday - 1) / 365.25
+            up = 0.5 + v_up * (t - 2024) + 0.003 * np.sin(2 * np.pi * t) + rng.normal(0, 0.004)
+            e_, n_ = 0.2 + rng.normal(0, 0.0015), 0.1 + rng.normal(0, 0.0015)
+            lines.append(f"{site} {d.strftime('%y%b%d').upper()} {t:.4f} 0 0 0 {lon:.1f} 0 {e_:.5f} 0 {n_:.5f} "
+                         f"0 {up:.5f} 0.0 0.0011 0.0012 0.0045 0 0 0 {lat:.7f} {lon:.7f} 500.0")
+        (folder / f"{site}.tenv3").write_text("\n".join(lines) + "\n")
+    (folder / "DataHoldings.txt").write_text("\n".join(holdings) + "\n")
+
+
+def write_published_map(path: Path, scene: Scene):
+    """A stand-in for a published vertical velocity product (mm/yr, positive up) at 100 m, e.g. EGMS Ortho."""
+    import rioxarray  # noqa: F401
+    import xarray as xr
+
+    x = np.arange(scene.w - 2000, scene.e + 2000, 100.0)
+    y = np.arange(scene.n + 2000, scene.s - 2000, -100.0)
+    X, Y = np.meshgrid(x, y)
+    rng = np.random.default_rng(5)
+    v = scene.vertical_rate(X, Y) * 1000 + _smooth_noise(rng, X.shape, 20, 2.0) + rng.normal(0, 1.5, X.shape)
+    v = np.where(scene.cover(X, Y) == 1, np.nan, v)  # a C-band product: no data in the forest
+    da = xr.DataArray(v.astype("float32"), dims=("y", "x"), coords={"y": y, "x": x})
+    da.rio.write_crs(scene.crs).rio.write_nodata(np.nan).rio.to_raster(path)
 
 
 def demo_config(root: str | Path = "data/demo", output_dir: str = "outputs") -> Config:
     nisar_dir, s1_dir = make_demo_data(root)
     return Config(name="demo_synthetic", aoi=list(DEMO_BBOX), nisar_source="LOCAL", nisar_dir=str(nisar_dir),
                   s1_source="LOCAL", s1_dir=str(s1_dir), max_pairs=6, output_dir=output_dir,
+                  gnss="NGL", gnss_dir=str(Path(root) / "gnss"),
+                  published_maps=[{"path": str(Path(root) / "published_velocity_demo.tif"),
+                                   "label": "Synthetic published map", "units": "mm/yr", "component": "vertical",
+                                   "period": "2019–2024 (synthetic)"}],
                   extra={"synthetic": True})

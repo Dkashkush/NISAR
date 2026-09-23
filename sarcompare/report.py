@@ -16,6 +16,7 @@ STAGE_TITLES = {
     "stack": "Stacking pairs into rates",
     "reference": "Common reference point",
     "compare": "Comparison & interpretation",
+    "validate": "Validation against published data",
     "report": "Outputs",
 }
 
@@ -71,6 +72,7 @@ def build_report(r) -> str:
     w, s, ea, n = r.config.get_aoi().bounds
     synthetic = bool(cfg.extra.get("synthetic"))
 
+    gstats = r.gnss.stats if r.gnss else {}
     tiles = [
         (f"{c.coverage_a:.0%} / {c.coverage_b:.0%}", "AOI coverage NISAR / Sentinel-1"),
         (_num(c.pearson_r, 2), "Correlation of rates (r)"),
@@ -78,6 +80,9 @@ def build_report(r) -> str:
         (f"{c.only_a:.0%}", "Area only NISAR can measure"),
         (str(len(c.hotspots)), "Moving areas detected"),
     ]
+    if gstats:
+        tiles.append((" / ".join(_num(gstats[k].rmse_mm_yr, 1) for k in ("NISAR", "Sentinel-1") if k in gstats),
+                      "RMSE vs GNSS, NISAR / S1 (mm/yr)"))
     tiles_html = "".join(f'<div class="tile"><div class="v">{e(v)}</div><div class="k">{e(k)}</div></div>'
                          for v, k in tiles)
 
@@ -107,6 +112,23 @@ def build_report(r) -> str:
             extra = (_img(fig["rate_maps"], "Rate maps side by side and difference")
                      + '<div style="max-width:520px;margin-top:12px">'
                      + _img(fig["scatter"], "Scatter of NISAR vs Sentinel-1 rates") + "</div>")
+        if stage == "validate":
+            if "gnss" in fig:
+                extra += '<div style="max-width:560px">' + _img(fig["gnss"], "InSAR vs GNSS scatter") + "</div>"
+            for k in range(len(r.published)):
+                extra += _img(fig[f"published_{k}"], "Published velocity map comparison")
+            if r.gnss and r.gnss.stations:
+                rows = "".join(
+                    f"<tr><td>{e(st.site)}</td><td>{st.lat:.4f}, {st.lon:.4f}</td><td>{st.up_mm_yr:+.1f}"
+                    f" ± {_num(st.up_sigma_mm_yr)}</td>"
+                    + "".join(f"<td>{_num(st.insar.get(sn, float('nan')), 1)}</td>" for sn in ("NISAR", "Sentinel-1"))
+                    + f"<td>{e(st.period)}</td></tr>" for st in r.gnss.stations)
+                extra += ('<div class="scroll" style="margin-top:12px"><table><thead><tr><th>Station</th>'
+                          "<th>Lat, lon</th><th>GNSS up (mm/yr)</th><th>NISAR (mm/yr)</th>"
+                          "<th>Sentinel-1 (mm/yr)</th><th>GNSS period</th></tr></thead>"
+                          f"<tbody>{rows}</tbody></table></div>"
+                          '<p class="sub" style="margin-top:6px">InSAR values are relative to the reference '
+                          "point (before the offset is removed).</p>")
         if body or extra:
             sections.append(f'<h2>{len(sections) + 1} · {e(title)}</h2><div class="card">{extra}{body}</div>')
 

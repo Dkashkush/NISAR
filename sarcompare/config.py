@@ -41,6 +41,12 @@ class Config:
     s1_sign: float | None = None  # override sign convention (+1 / -1) if a product disagrees
     nisar_sign: float | None = None
 
+    # Validation against published data (see sarcompare/validate.py)
+    gnss: str | None = None  # None = off; "NGL" = Nevada Geodetic Lab (auto-download); or path to a CSV table
+    gnss_dir: str = "data/gnss"  # cache for NGL files
+    gnss_max_stations: int = 30
+    published_maps: list = field(default_factory=list)  # [{path, label, units, component, sign, incidence_deg}]
+
     data_dir: str = "data"
     output_dir: str = "outputs"
     extra: dict = field(default_factory=dict)

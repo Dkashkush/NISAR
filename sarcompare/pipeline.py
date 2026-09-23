@@ -17,7 +17,7 @@ from . import plots
 from .compare import Comparison, compare
 from .config import Config
 from .download import download_products
-from .interpret import comparison_notes, pair_notes, stack_notes
+from .interpret import comparison_notes, gnss_notes, pair_notes, published_notes, stack_notes
 from .notes import INFO, WARN, Note
 from .processing import (RateMap, Reference, aoi_mask, apply_reference, choose_reference, common_grid,
                          reference_notes, stack_rates, to_vertical)
@@ -47,6 +47,8 @@ class RunResult:
     notes: list[Note] = field(default_factory=list)
     figures: dict[str, dict[str, bytes]] = field(default_factory=dict)  # name -> {theme: png}
     outputs: dict[str, str] = field(default_factory=dict)
+    gnss: object | None = None  # validate.GnssValidation
+    published: list = field(default_factory=list)  # [validate.PublishedValidation]
 
 
 def _print_event(ev: Event) -> None:
@@ -139,15 +141,49 @@ class Pipeline:
 
     def reference_and_compare(self) -> Comparison:
         a, b = self.result.nisar_rate, self.result.s1_rate
-        ref = choose_reference(a, b, self.cfg.reference_lonlat)
+        ref = choose_reference(a, b, self.cfg.reference_lonlat, self.result.inside)
         apply_reference(a, ref)
         apply_reference(b, ref)
         self.result.reference = ref
-        self.emit("reference", "Referenced both rate maps to a common point", reference_notes(ref, a, b))
+        self.emit("reference", "Put both rate maps on a common reference", reference_notes(ref, a, b))
         c = compare(a, b, self.result.inside)
         self.result.comparison = c
         self.emit("compare", "Compared NISAR and Sentinel-1", comparison_notes(c, a, b))
         return c
+
+    def validate(self) -> None:
+        """Compare both rate maps with independent published data (GNSS and/or published velocity maps)."""
+        from . import validate as V
+
+        cfg, r = self.cfg, self.result
+        rates = [r.nisar_rate, r.s1_rate]
+        if cfg.gnss:
+            notes: list[Note] = []
+            try:
+                if str(cfg.gnss).upper() == "NGL":
+                    start = min(rm.date_start for rm in rates)
+                    end = max(rm.date_end for rm in rates)
+                    self.emit("validate", "Fetching GNSS stations from the Nevada Geodetic Laboratory")
+                    stations, skipped = V.ngl_stations(
+                        self.aoi, start, end, cfg.gnss_dir, cfg.gnss_max_stations,
+                        progress=lambda i, n, site: self.on_event(Event("validate", f"GNSS {i + 1}/{n}: {site}",
+                                                                        progress=i / max(n, 1))))
+                    source = "Nevada Geodetic Laboratory, IGS20"
+                else:
+                    stations, skipped, source = V.csv_stations(cfg.gnss), [], f"table {Path(cfg.gnss).name}"
+                r.gnss = V.validate_gnss(stations, rates, source, skipped)
+                notes = gnss_notes(r.gnss, rates)
+            except Exception as e:  # network or file problems must not lose the whole comparison
+                notes = [Note("validate", WARN, f"GNSS validation failed: {type(e).__name__}: {e}")]
+            self.emit("validate", "Compared with GNSS", notes)
+        for spec in cfg.published_maps:
+            try:
+                pv = V.validate_published(spec, rates, r.reference, r.inside)
+                r.published.append(pv)
+                notes = published_notes(pv, rates)
+            except Exception as e:
+                notes = [Note("validate", WARN, f"Could not use published map {spec.get('path')}: {e}")]
+            self.emit("validate", f"Compared with published map {spec.get('label') or spec.get('path')}", notes)
 
     def make_figures(self) -> None:
         r = self.result
@@ -158,9 +194,15 @@ class Pipeline:
                  SENTINEL1: [(i.date1, i.date2) for i in r.s1_products]}, th),
             "coherence_maps": lambda th: plots.coherence_maps(a, b, th),
             "coherence_hist": lambda th: plots.coherence_hist(a, b, self.cfg.coherence_threshold, r.inside, th),
-            "rate_maps": lambda th: plots.rate_maps(a, b, c, r.reference, th),
+            "rate_maps": lambda th: plots.rate_maps(a, b, c, r.reference, th,
+                                                    r.gnss.stations if r.gnss else None),
             "scatter": lambda th: plots.scatter(a, b, c, th),
         }
+        if r.gnss and r.gnss.stations:
+            builders["gnss"] = lambda th: plots.gnss_scatter(r.gnss, [NISAR, SENTINEL1], th)
+        for k, pv in enumerate(r.published):
+            builders[f"published_{k}"] = lambda th, pv=pv: plots.published_panels(pv, [NISAR, SENTINEL1],
+                                                                                  r.reference, th)
         for name, build in builders.items():
             r.figures[name] = {th: plots.to_png(build(th)) for th in ("light", "dark")}
         self.emit("figures", f"Rendered {len(builders)} figures")
@@ -186,10 +228,11 @@ class Pipeline:
         metrics = {
             "config": self.cfg.to_dict(),
             "nisar": _rate_summary(r.nisar_rate), "sentinel1": _rate_summary(r.s1_rate),
-            "reference": {"lon": r.reference.lon, "lat": r.reference.lat, "auto": r.reference.auto},
+            "reference": {"mode": r.reference.mode, "lon": r.reference.lon, "lat": r.reference.lat},
             "comparison": r.comparison.to_dict(),
             "pairs": [p.to_row() for p in r.nisar_products + r.s1_products],
             "notes": [n.to_dict() for n in r.notes],
+            "validation": _validation_summary(r),
         }
         (out / "metrics.json").write_text(json.dumps(metrics, indent=2, default=str))
         r.outputs["metrics"] = str(out / "metrics.json")
@@ -207,6 +250,8 @@ class Pipeline:
             self.download()
         self.load_and_stack()
         self.reference_and_compare()
+        if self.cfg.gnss or self.cfg.published_maps:
+            self.validate()
         self.make_figures()
         self.write_outputs()
         return self.result
@@ -225,3 +270,15 @@ def _rate_summary(rm: RateMap) -> dict:
     return {"component": rm.component, "n_pairs": rm.n_pairs, "total_days": rm.total_days,
             "date_start": str(rm.date_start), "date_end": str(rm.date_end), "incidence_deg": rm.incidence_deg,
             "wavelength_m": rm.wavelength, "noise_rate_mm_yr": rm.noise_rate * 1000}
+
+
+def _validation_summary(r: RunResult) -> dict:
+    from dataclasses import asdict
+
+    out: dict = {}
+    if r.gnss:
+        out["gnss"] = {"source": r.gnss.source, "stats": {k: asdict(v) for k, v in r.gnss.stats.items()},
+                       "stations": [asdict(s) for s in r.gnss.stations], "skipped": r.gnss.skipped}
+    out["published_maps"] = [{"label": p.label, "path": p.path, "reference_mode": p.reference_mode,
+                              "stats": {k: asdict(v) for k, v in p.stats.items()}} for p in r.published]
+    return out

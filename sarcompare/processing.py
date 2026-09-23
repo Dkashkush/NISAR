@@ -129,81 +129,79 @@ def to_vertical(rm: RateMap) -> RateMap:
 
 @dataclass
 class Reference:
-    x: float
-    y: float
-    lon: float
-    lat: float
-    row: int
-    col: int
-    auto: bool
+    """Common reference. ``mode`` is "point" (a user-given location, e.g. bedrock or a GNSS station) or
+    "area" (automatic: the median over all pixels valid in both datasets)."""
+
+    mode: str
+    mask: np.ndarray  # pixels whose median defines zero
+    x: float | None = None
+    y: float | None = None
+    lon: float | None = None
+    lat: float | None = None
+    row: int | None = None
+    col: int | None = None
     notes: list[Note] = field(default_factory=list)
+
+    @property
+    def auto(self) -> bool:
+        return self.mode == "area"
 
 
 def choose_reference(a: RateMap, b: RateMap, lonlat: tuple[float, float] | None = None,
-                     window: int = 5) -> Reference:
-    """Pick a shared reference pixel: user-given, or the most coherent, smoothest spot valid in both."""
+                     inside: np.ndarray | None = None, window: int = 7) -> Reference:
+    """Shared reference for both maps.
+
+    Automatic mode deliberately does *not* search for a "best" pixel: with rate noise of several mm/yr,
+    searching thousands of pixels for one that looks typical selects noise (and coherent cities, which
+    often subside). The median over every pixel valid in both datasets assumes only that most of the area
+    is stable, and averages the noise over the whole scene.
+    """
     ra, rb = a.rate.values, b.rate.values
     both = np.isfinite(ra) & np.isfinite(rb)
+    if inside is not None and (both & inside).any():
+        both = both & inside
     if not both.any():
         raise ValueError("The two sensors have no valid pixels in common; cannot compare. "
                          "Try a lower coherence_threshold or a different AOI/date window.")
+    if lonlat is None:
+        return Reference(mode="area", mask=both)
     crs = a.rate.rio.crs
-    to_ll = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
     xs, ys = a.rate.x.values, a.rate.y.values
     notes: list[Note] = []
-    if lonlat is not None:
-        x, y = Transformer.from_crs("EPSG:4326", crs, always_xy=True).transform(*lonlat)
-        col, row = int(np.argmin(np.abs(xs - x))), int(np.argmin(np.abs(ys - y)))
-        if not both[row, col]:
-            dist = ndimage.distance_transform_edt(~both, return_indices=True)[1]
-            row, col = int(dist[0, row, col]), int(dist[1, row, col])
-            notes.append(Note("reference", WARN, "Your reference point is not valid in both datasets; moved to "
-                                                 "the nearest pixel that is."))
-        auto = False
-    else:
-        # Assume most of the AOI is stable: prefer coherent, locally smooth pixels whose rate is close to the
-        # scene median in *both* datasets (a high-coherence city that is itself subsiding scores badly).
-        joint_coh = np.fmin(np.nan_to_num(a.coherence.values), np.nan_to_num(b.coherence.values))
-        size = (window, window)
-        frac_valid = ndimage.uniform_filter(both.astype(float), size)
-        cost = np.zeros(ra.shape)
-        for r in (ra, rb):
-            r0 = np.where(both, r, 0.0)
-            mean = ndimage.uniform_filter(r0, size) / np.maximum(frac_valid, 1e-6)
-            sd = np.sqrt(np.maximum(ndimage.uniform_filter(r0 ** 2, size) / np.maximum(frac_valid, 1e-6)
-                                    - mean ** 2, 0))
-            spread = float(np.nanstd(r[both])) or 1.0
-            cost += (np.abs(mean - np.nanmedian(r[both])) + sd) / spread
-        smooth_coh = ndimage.uniform_filter(joint_coh, size)
-        good = both & (frac_valid > 0.9) & (smooth_coh >= np.nanpercentile(smooth_coh[both], 50))
-        if not good.any():
-            good = both
-        cost = np.where(good, cost - smooth_coh, np.inf)
-        row, col = np.unravel_index(int(np.argmin(cost)), cost.shape)
-        auto = True
-    lon, lat = to_ll.transform(xs[col], ys[row])
-    return Reference(x=float(xs[col]), y=float(ys[row]), lon=float(lon), lat=float(lat), row=int(row),
-                     col=int(col), auto=auto, notes=notes)
-
-
-def apply_reference(rm: RateMap, ref: Reference, window: int = 3) -> float:
-    """Subtract the rate around the reference point; returns the value removed (m/yr)."""
+    x, y = Transformer.from_crs("EPSG:4326", crs, always_xy=True).transform(*lonlat)
+    col, row = int(np.argmin(np.abs(xs - x))), int(np.argmin(np.abs(ys - y)))
+    if not both[row, col]:
+        idx = ndimage.distance_transform_edt(~both, return_indices=True)[1]
+        row, col = int(idx[0, row, col]), int(idx[1, row, col])
+        notes.append(Note("reference", WARN, "Your reference point is not valid in both datasets; moved to the "
+                                             "nearest pixel that is."))
     h = window // 2
-    patch = rm.rate.values[max(0, ref.row - h):ref.row + h + 1, max(0, ref.col - h):ref.col + h + 1]
-    offset = float(np.nanmedian(patch))
+    mask = np.zeros_like(both)
+    mask[max(0, row - h):row + h + 1, max(0, col - h):col + h + 1] = True
+    lon, lat = Transformer.from_crs(crs, "EPSG:4326", always_xy=True).transform(xs[col], ys[row])
+    return Reference(mode="point", mask=mask & both, x=float(xs[col]), y=float(ys[row]), lon=float(lon),
+                     lat=float(lat), row=row, col=col, notes=notes)
+
+
+def apply_reference(rm: RateMap, ref: Reference) -> float:
+    """Subtract the median rate over the reference pixels; returns the value removed (m/yr)."""
+    offset = float(np.nanmedian(rm.rate.values[ref.mask]))
     rm.rate = rm.rate - offset
     return offset
 
 
 def reference_notes(ref: Reference, a: RateMap, b: RateMap) -> list[Note]:
     notes = list(ref.notes)
-    how = "chosen automatically: coherent in both, locally smooth, and close to the scene-wide median rate" if ref.auto else "set by you"
-    notes.append(Note("reference", INFO, f"Both rate maps are referenced to the same point at "
-                                         f"{ref.lat:.4f}°N, {ref.lon:.4f}°E ({how}). InSAR measures relative "
-                                         "motion, so this point is assumed stable; everything is relative to it."))
+    if ref.mode == "area":
+        notes.append(Note("reference", INFO,
+                          f"Both rate maps are referenced to their median over the {int(ref.mask.sum()):,} pixels "
+                          "valid in both, i.e. zero = the typical motion of the area. This assumes most of the AOI is "
+                          "stable. InSAR only measures relative motion; for absolute rates, set reference_lonlat "
+                          "to bedrock or a GNSS station (the GNSS check reports how far off zero the area is)."))
+        return notes
+    notes.append(Note("reference", INFO, f"Both rate maps are referenced to your point at {ref.lat:.4f}°N, "
+                                         f"{ref.lon:.4f}°E (7×7-pixel median). Everything is relative to it."))
     ca, cb = float(a.coherence.values[ref.row, ref.col]), float(b.coherence.values[ref.row, ref.col])
     lvl = GOOD if min(ca, cb) > 0.5 else WARN
-    notes.append(Note("reference", lvl, f"Coherence at the reference: {a.sensor} {ca:.2f}, {b.sensor} {cb:.2f}. "
-                                        "Pick a point on bedrock or an old building known to be stable if you can "
-                                        "(set reference_lonlat)."))
+    notes.append(Note("reference", lvl, f"Coherence at the reference: {a.sensor} {ca:.2f}, {b.sensor} {cb:.2f}."))
     return notes
