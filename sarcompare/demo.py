@@ -156,12 +156,42 @@ def write_aria_gunw(path: Path, scene: Scene, d1: date, d2: date, res_deg=1 / 12
 
 
 def make_demo_data(root: str | Path = "data/demo", seed: int = 7) -> tuple[Path, Path]:
-    """Write the synthetic product folders; returns (nisar_dir, s1_dir)."""
+    """Write the synthetic product folders once; returns (nisar_dir, s1_dir).
+
+    Files are written to a private temporary folder that is then renamed into place, so several visitors
+    of a hosted app starting the demo at the same moment never see half-written files.
+    """
     root = Path(root)
     nisar_dir, s1_dir = root / "nisar", root / "sentinel1"
-    done = root / ".complete"
-    if done.exists():  # already generated (also avoids concurrent rewrites when hosted online)
+    if (root / ".complete").exists():
         return nisar_dir, s1_dir
+    import os
+    import shutil
+    import uuid
+
+    root.parent.mkdir(parents=True, exist_ok=True)
+    tmp = root.parent / f".{root.name}.tmp-{os.getpid()}-{uuid.uuid4().hex[:6]}"
+    (tmp / "nisar").mkdir(parents=True)
+    (tmp / "sentinel1").mkdir()
+    scene = Scene(AOI.from_bbox(*DEMO_BBOX, name="demo"), seed)
+    for i, (d1, d2) in enumerate(_pairs(date(2025, 10, 10), 6, 48)):
+        # official pattern: NISAR_L2_PR_GUNW_<refcycle>_<track>_<dir>_<frame>_<seccycle>_<bw>_<pol>_<4 times>_<crid>_...
+        name = (f"NISAR_L2_PR_GUNW_{4 * i + 5:03d}_120_A_045_{4 * i + 9:03d}_4000_SH_{d1:%Y%m%d}T123000_"
+                f"{d1:%Y%m%d}T123020_{d2:%Y%m%d}T123000_{d2:%Y%m%d}T123020_X05010_N_P_J_001.h5")
+        write_nisar_gunw(tmp / "nisar" / name, scene, d1, d2)
+    for d1, d2 in _pairs(date(2025, 10, 4), 6, 48):
+        name = f"S1-GUNW-A-R-114-tops-{d2:%Y%m%d}_{d1:%Y%m%d}-003012-00078E_00030N-PP-a1b2-v3_0_1.nc"
+        write_aria_gunw(tmp / "sentinel1" / name, scene, d1, d2)
+    write_gnss_cache(tmp / "gnss", scene)
+    write_published_map(tmp / "published_velocity_demo.tif", scene)
+    (tmp / ".complete").write_text("ok\n")
+    if root.exists() and not (root / ".complete").exists():
+        shutil.rmtree(root, ignore_errors=True)  # stale, half-written folder from an interrupted older run
+    try:
+        os.rename(tmp, root)
+    except OSError:  # someone else finished first: use theirs
+        shutil.rmtree(tmp, ignore_errors=True)
+    return nisar_dir, s1_dir
     nisar_dir.mkdir(parents=True, exist_ok=True)
     s1_dir.mkdir(parents=True, exist_ok=True)
     scene = Scene(AOI.from_bbox(*DEMO_BBOX, name="demo"), seed)
