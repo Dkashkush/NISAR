@@ -76,6 +76,33 @@ The app opens in your web browser but runs **on your own computer**. In the side
 
 Results appear in tabs: Displacement, Coherence, Agreement, Validation, Pairs, Interpretation, Downloads.
 
+## Putting it online as a web page
+
+The app can be hosted so that anyone can open it from a link. The repository includes everything a host
+needs: `requirements.txt`, `packages.txt`, `.streamlit/config.toml` and a `Dockerfile`. The Dockerfile was
+build-tested, and the container was tested with two simultaneous visitors.
+
+Hosted mode is switched on with `SARCOMPARE_ONLINE=1`; the Dockerfile sets it, and on Streamlit Cloud you add
+it under *Secrets/Environment*. In hosted mode:
+- each visitor's Earthdata token is used only for their own session and is never stored;
+- uploads and results are kept per visitor;
+- "Local files" is hidden;
+- areas are limited to 2,500 km² (`SARCOMPARE_MAX_AOI_KM2`) and to 8 pairs per sensor (`SARCOMPARE_MAX_PAIRS`).
+
+| Host | Cost | How |
+|---|---|---|
+| **Hugging Face Spaces** (recommended) | Free CPU tier with generous memory | New Space → SDK **Docker** → push this repo. Add this header at the top of the Space's README: `---` / `sdk: docker` / `app_port: 7860` / `---` |
+| **Streamlit Community Cloud** | Free, smaller memory | share.streamlit.io → New app → this GitHub repo, branch, main file `app.py`. Set `SARCOMPARE_ONLINE = "1"` in Advanced settings → Secrets |
+| **Render / Fly.io / any Docker host** | Free or cheap tiers | Deploy the `Dockerfile`; the app listens on `$PORT` |
+
+What to expect online:
+- **The demo works well online** and makes a good portfolio link.
+- **Real NISAR data is heavy.** Each GUNW file is hundreds of MB, and free servers have limited disk, memory and
+  time. Keep areas and pair counts small online, and run big studies on your own computer.
+- **Free servers sleep** when unused and forget files on restart. Visitors should download their report.
+- **Visitors need their own free Earthdata token** for real data. Never put your own token in the server's
+  settings for a public app, or everyone would download with your account.
+
 ## Command line
 
 ```bash
@@ -218,6 +245,7 @@ sarcompare/
   demo.py         synthetic scene written in real product layouts
 app.py            alternative GUI entry point (streamlit run app.py)
 Start-GUI.bat, start-gui.command, start-gui.sh   double-click launchers
+Dockerfile, requirements.txt, packages.txt, .streamlit/   online hosting
 examples/         example configs
 tests/            unit + end-to-end tests
 ```

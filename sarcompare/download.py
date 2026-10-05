@@ -12,12 +12,13 @@ from .products import Product
 EARTHDATA_HOST = "urs.earthdata.nasa.gov"
 
 
-def make_session():
-    """ASF session authenticated from EARTHDATA_TOKEN, EARTHDATA_USERNAME/PASSWORD, or ~/.netrc."""
+def make_session(token: str | None = None):
+    """ASF session authenticated from an explicit token (per user, e.g. typed into the web app), else
+    EARTHDATA_TOKEN, EARTHDATA_USERNAME/PASSWORD, or ~/.netrc on the machine running the app."""
     import asf_search as asf
 
     session = asf.ASFSession()
-    token = os.environ.get("EARTHDATA_TOKEN")
+    token = token or os.environ.get("EARTHDATA_TOKEN")
     user = os.environ.get("EARTHDATA_USERNAME")
     password = os.environ.get("EARTHDATA_PASSWORD")
     if token:

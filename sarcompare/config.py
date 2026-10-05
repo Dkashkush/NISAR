@@ -47,6 +47,8 @@ class Config:
     gnss_max_stations: int = 30
     published_maps: list = field(default_factory=list)  # [{path, label, units, component, sign, incidence_deg}]
 
+    earthdata_token: str | None = field(default=None, repr=False)  # per-run credential; never written to disk
+
     data_dir: str = "data"
     output_dir: str = "outputs"
     extra: dict = field(default_factory=dict)
@@ -85,6 +87,7 @@ class Config:
 
     def to_dict(self) -> dict:
         d = asdict(self)
+        d.pop("earthdata_token", None)
         d["start"] = str(self.start) if self.start else None
         d["end"] = str(self.end) if self.end else None
         return d

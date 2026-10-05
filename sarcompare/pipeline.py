@@ -105,7 +105,11 @@ class Pipeline:
         def prog(i, n, p):
             self.on_event(Event("download", f"{i + 1}/{n}: {p.name}", progress=i / n))
 
-        download_products(todo, self.cfg.data_dir, progress=prog)
+        session = None
+        if self.cfg.earthdata_token:
+            from .download import make_session
+            session = make_session(self.cfg.earthdata_token)
+        download_products(todo, self.cfg.data_dir, session=session, progress=prog)
         self.emit("download", "Download complete", progress=1.0)
 
     def load_and_stack(self) -> None:

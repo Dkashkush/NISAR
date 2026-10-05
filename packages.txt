@@ -1,0 +1,2 @@
+# System packages for Streamlit Community Cloud (rasterio needs libexpat)
+libexpat1

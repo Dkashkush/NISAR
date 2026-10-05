@@ -1,0 +1,6 @@
+[server]
+headless = true
+maxUploadSize = 500   # MB, for published velocity maps / GNSS tables
+
+[browser]
+gatherUsageStats = false

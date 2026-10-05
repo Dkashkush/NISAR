@@ -159,6 +159,9 @@ def make_demo_data(root: str | Path = "data/demo", seed: int = 7) -> tuple[Path,
     """Write the synthetic product folders; returns (nisar_dir, s1_dir)."""
     root = Path(root)
     nisar_dir, s1_dir = root / "nisar", root / "sentinel1"
+    done = root / ".complete"
+    if done.exists():  # already generated (also avoids concurrent rewrites when hosted online)
+        return nisar_dir, s1_dir
     nisar_dir.mkdir(parents=True, exist_ok=True)
     s1_dir.mkdir(parents=True, exist_ok=True)
     scene = Scene(AOI.from_bbox(*DEMO_BBOX, name="demo"), seed)
@@ -172,6 +175,7 @@ def make_demo_data(root: str | Path = "data/demo", seed: int = 7) -> tuple[Path,
         write_aria_gunw(s1_dir / name, scene, d1, d2)
     write_gnss_cache(root / "gnss", scene)
     write_published_map(root / "published_velocity_demo.tif", scene)
+    done.write_text("ok\n")
     return nisar_dir, s1_dir
 
 

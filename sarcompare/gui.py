@@ -20,6 +20,10 @@ STAGES = {"search": "Search & pair selection", "download": "Download", "load": "
           "stack": "Stack into rates", "reference": "Reference", "compare": "Compare & interpret",
           "validate": "Validate against published data", "figures": "Figures", "report": "Report"}
 UPLOADS = Path("data/uploads")
+# Hosted mode (set SARCOMPARE_ONLINE=1 on the server): no server folders, per-visitor files, size limits.
+ONLINE = os.environ.get("SARCOMPARE_ONLINE", "") == "1"
+MAX_AOI_KM2 = float(os.environ.get("SARCOMPARE_MAX_AOI_KM2", "2500"))
+MAX_PAIRS_ONLINE = int(os.environ.get("SARCOMPARE_MAX_PAIRS", "8"))
 
 
 def theme() -> str:
@@ -34,9 +38,18 @@ def show_notes(notes, container):
         container.markdown(f"{ICON.get(n.level, 'ℹ️')} {n.text}")
 
 
+def session_id() -> str:
+    """Short random id per browser session, so visitors never share uploads or outputs."""
+    if "sid" not in st.session_state:
+        import uuid
+        st.session_state["sid"] = uuid.uuid4().hex[:10]
+    return st.session_state["sid"]
+
+
 def save_upload(f) -> str:
-    UPLOADS.mkdir(parents=True, exist_ok=True)
-    path = UPLOADS / Path(f.name).name
+    folder = UPLOADS / session_id()
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / Path(f.name).name
     path.write_bytes(f.getbuffer())
     return str(path)
 
@@ -47,7 +60,8 @@ def main():
     # ---------------------------------------------------------------- sidebar
     with st.sidebar:
         st.header("Setup")
-        mode = st.radio("Data", ["Demo (synthetic)", "Search ASF", "Local files"],
+        modes = ["Demo (synthetic)", "Search ASF"] + ([] if ONLINE else ["Local files"])
+        mode = st.radio("Data", modes,
                         help="Demo needs no account. Search ASF needs a free NASA Earthdata login.")
         name = st.text_input("Run name", "demo_synthetic" if mode.startswith("Demo") else "my_area")
 
@@ -73,10 +87,10 @@ def main():
                                      help="ARIA GUNW: selected regions worldwide. OPERA DISP-S1: North America. "
                                           "Elsewhere, order HyP3 InSAR jobs in ASF Vertex and use 'Local files'.")
             direction = st.selectbox("Flight direction", ["Any", "ASCENDING", "DESCENDING"])
-            token = st.text_input("Earthdata token (optional)", type="password",
-                                  help="Or set EARTHDATA_TOKEN / ~/.netrc on the machine running this app.")
-            if token:
-                os.environ["EARTHDATA_TOKEN"] = token
+            token = st.text_input("Earthdata token" + ("" if ONLINE else " (optional)"), type="password",
+                                  help="Create one free at urs.earthdata.nasa.gov → Generate Token. It is used only "
+                                       "for your own downloads in this browser session and is never saved."
+                                       + ("" if ONLINE else " Or set EARTHDATA_TOKEN / ~/.netrc on this computer."))
         if mode == "Local files":
             nisar_dir = st.text_input("Folder with NISAR GUNW .h5 files", "data/NISAR")
             s1_dir = st.text_input("Folder with Sentinel-1 products (ARIA .nc, OPERA .nc, HyP3 .zip)", "data/Sentinel-1")
@@ -85,7 +99,7 @@ def main():
             coh = st.slider("Coherence threshold", 0.1, 0.8, 0.35, 0.05,
                             help="Pixels below this in a pair are ignored for that pair.")
             res = st.select_slider("Comparison grid (m)", [30, 60, 90, 120, 200], value=90)
-            max_pairs = st.slider("Max pairs per sensor", 2, 20, 6)
+            max_pairs = st.slider("Max pairs per sensor", 2, MAX_PAIRS_ONLINE if ONLINE else 20, 6)
             vertical = st.checkbox("Project to vertical", True, help="Assumes no horizontal motion.")
             iono = st.checkbox("Apply NISAR ionosphere correction", True)
             ref_txt = st.text_input("Reference point 'lon, lat' (blank = automatic)", "")
@@ -123,6 +137,14 @@ def main():
                 else:
                     kw.update(nisar_source="LOCAL", nisar_dir=nisar_dir, s1_source="LOCAL", s1_dir=s1_dir)
                 cfg = Config(**kw)
+            if mode == "Search ASF":
+                cfg.earthdata_token = token or None  # per session; never put in os.environ (shared by all users)
+            if ONLINE:
+                cfg.output_dir = f"outputs/{session_id()}"
+                if not mode.startswith("Demo") and cfg.get_aoi().area_km2() > MAX_AOI_KM2:
+                    raise ValueError(f"This online version is limited to areas up to {MAX_AOI_KM2:,.0f} km² "
+                                     f"(yours is {cfg.get_aoi().area_km2():,.0f} km²). Draw a smaller box, or run "
+                                     "the app on your own computer for larger areas.")
             cfg.coherence_threshold, cfg.resolution_m, cfg.max_pairs = coh, float(res), max_pairs
             cfg.project_to_vertical, cfg.nisar_apply_ionosphere = vertical, iono
             if ref_txt.strip():
@@ -144,6 +166,9 @@ def main():
 
     # ---------------------------------------------------------------- main
     st.title("NISAR vs Sentinel-1")
+    if ONLINE:
+        st.caption("Online version: your files and results are kept separate from other visitors and are deleted when "
+                   "the server restarts. Download what you want to keep.")
     st.caption("L-band (24 cm) and C-band (5.6 cm) radar interferometry over the same ground, side by side, "
                "with interpretation at every step.")
     if mode.startswith("Demo"):
