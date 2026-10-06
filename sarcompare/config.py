@@ -10,7 +10,7 @@ import yaml
 
 from .aoi import AOI
 
-S1_SOURCES = ("ARIA_S1_GUNW", "OPERA_DISP_S1", "LOCAL")
+S1_SOURCES = ("AUTO", "ARIA_S1_GUNW", "OPERA_DISP_S1", "LOCAL")
 NISAR_SOURCES = ("ASF", "LOCAL")
 
 
@@ -27,7 +27,7 @@ class Config:
     nisar_flight_direction: str | None = None  # ASCENDING / DESCENDING / None (any)
     nisar_apply_ionosphere: bool = True  # subtract the GUNW ionospheric phase screen when present
 
-    s1_source: str = "ARIA_S1_GUNW"  # see S1_SOURCES
+    s1_source: str = "AUTO"  # see S1_SOURCES; AUTO tries ARIA GUNW, then OPERA DISP-S1 in North America
     s1_dir: str | None = None  # used when s1_source == LOCAL
     s1_flight_direction: str | None = None
 

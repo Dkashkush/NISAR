@@ -67,14 +67,21 @@ minutes and needs Python 3.10+ from python.org:
 | macOS | `start-gui.command` |
 | Linux | `start-gui.sh` |
 
-The app opens in your web browser but runs **on your own computer**. In the sidebar:
+The app opens in your web browser but runs **on your own computer**. It is built to be easy for
+non-specialists:
 
-1. Choose **Demo** to try it, **Search ASF** to download real data, or **Local files** for data you already have.
-2. Set your area and dates. Optionally open **Validate against published data** and pick GNSS and/or upload a
-   published velocity map.
-3. Click **1 · Search** to see what will be downloaded, then **2 · Download & compare**.
-
-Results appear in tabs: Displacement, Coherence, Agreement, Validation, Pairs, Interpretation, Downloads.
+- **Explore page, a guided 1-2-3 flow:** choose *Try the demo*, *Analyse a real place*, or *Use files I
+  already have*. Pick an **example place** (Mexico City, Jakarta, Joshimath, Delhi NCR, Tehran, Central
+  Valley) or **draw a box on the map**, choose a time period, and optionally turn on extra checks.
+- **Results start with "In short":** a few plain sentences, such as "The ground is sinking by up to 9.5 cm per
+  year … both satellites see it".
+- **An interactive map** follows, with street or satellite basemaps, switchable NISAR / Sentinel-1 /
+  difference layers, and clickable moving-area and GNSS markers.
+- **Details in tabs:** download, side-by-side maps, agreement, checks, data used, and all notes.
+- **Learn page:** InSAR explained simply, NISAR vs Sentinel-1, how to read the colours, causes of ground
+  motion, and a glossary.
+- **Help & FAQ page:** what to do when no data is found, token safety, run times, and data credits.
+- **Automatic Sentinel-1 source:** ARIA, then OPERA DISP-S1 for North America, with guidance if neither exists.
 
 ## Putting it online as a web page
 

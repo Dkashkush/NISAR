@@ -211,3 +211,48 @@ def published_notes(pv, rates: list[RateMap]) -> list[Note]:
             add(WARN, base + " Poor match. Check the units, the sign convention (positive = up?) and the component "
                              "(LOS or vertical) of the published map before blaming either dataset.")
     return notes
+
+
+def plain_summary(result) -> list[tuple[str, str]]:
+    """A few short sentences for non-specialists, as (level, text), most important first."""
+    c, a, b = result.comparison, result.nisar_rate, result.s1_rate
+    out: list[tuple[str, str]] = []
+    moving = []  # one entry per place: the same area seen by both satellites counts once
+    for h in sorted(c.hotspots, key=lambda h: -abs(h.peak_mm_yr)):
+        near = [m for m in moving if math.hypot((m.lon - h.lon) * 111 * math.cos(math.radians(h.lat)),
+                                                (m.lat - h.lat) * 111) < 2.0]
+        if not near:
+            moving.append(h)
+    if moving:
+        h = moving[0]
+        verb = "sinking" if h.peak_mm_yr < 0 else "rising"
+        who = {"yes": "Both satellites see it.",
+               "no data": f"Only {h.sensor} can measure there (the other satellite loses the signal).",
+               "no": f"Only {h.sensor} sees it, so treat it with caution."}[h.seen_by_other]
+        out.append((GOOD if h.seen_by_other == "yes" else INFO,
+                    f"The ground is {verb} by up to {abs(h.peak_mm_yr) / 10:.1f} cm per year over about "
+                    f"{h.area_km2:.0f} km² near {h.lat:.3f}°N, {h.lon:.3f}°E. {who}"))
+        if len(moving) > 1:
+            out.append((INFO, f"{len(moving) - 1} more moving area(s) found; see the map and the table."))
+    else:
+        out.append((INFO, "No area is moving faster than these data can reliably detect."))
+    if math.isfinite(c.pearson_r):
+        word = "agree well" if c.pearson_r > 0.7 else "partly agree" if c.pearson_r > 0.4 else "do not agree well"
+        out.append((GOOD if c.pearson_r > 0.7 else INFO if c.pearson_r > 0.4 else WARN,
+                    f"Where both satellites have data, their measurements {word} "
+                    f"(typical difference {c.rmsd_mm_yr:.0f} mm per year)."))
+    if c.only_a > 0.05:
+        out.append((GOOD, f"NISAR measures {c.only_a:.0%} of the area that Sentinel-1 cannot, usually under "
+                          "vegetation. That is new information."))
+    g = getattr(result, "gnss", None)
+    if g is not None and a.sensor in g.stats and g.stats[a.sensor].n >= 2:
+        s = g.stats[a.sensor]
+        out.append((GOOD if s.rmse_mm_yr < 15 else WARN,
+                    f"Checked against {s.n} GNSS ground stations: NISAR is within about {s.rmse_mm_yr:.0f} mm per year."))
+    if math.isfinite(a.noise_rate):
+        out.append((INFO, f"Movements smaller than about {2 * max(a.noise_rate, b.noise_rate) * 1000:.0f} mm per "
+                          "year cannot be told apart from noise with this amount of data."))
+    if c.sign_suspect:
+        out.insert(0, (WARN, "The two satellites show opposite motion, which usually means a data-format setting "
+                             "is wrong. See the Details tab."))
+    return out

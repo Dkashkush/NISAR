@@ -71,6 +71,13 @@ class Pipeline:
 
     # -- stages -------------------------------------------------------------
 
+    def _s1_sources(self) -> list[str]:
+        if self.cfg.s1_source != "AUTO":
+            return [self.cfg.s1_source]
+        lon, lat = self.aoi.center
+        north_america = -170 <= lon <= -50 and 14 <= lat <= 75  # OPERA DISP-S1 coverage
+        return ["ARIA_S1_GUNW"] + (["OPERA_DISP_S1"] if north_america else [])
+
     def search(self) -> tuple[list[Product], list[Product]]:
         cfg = self.cfg
         area = self.aoi.area_km2()
@@ -82,9 +89,19 @@ class Pipeline:
         if cfg.s1_source == "LOCAL":
             s1_all = scan_local(cfg.s1_dir, SENTINEL1)
         else:
-            s1_all = search_sentinel1(self.aoi, cfg.s1_source, cfg.start, cfg.end, cfg.s1_flight_direction)
+            s1_all, used = [], cfg.s1_source
+            for source in self._s1_sources():
+                used = source
+                s1_all = search_sentinel1(self.aoi, source, cfg.start, cfg.end, cfg.s1_flight_direction)
+                if s1_all:
+                    break
+            self._s1_used = used
         notes = [Note("search", INFO, f"Found {len(nisar_all)} NISAR and {len(s1_all)} Sentinel-1 products.")]
-        s1_max_span = max(cfg.max_span_days, 730) if cfg.s1_source == "OPERA_DISP_S1" else cfg.max_span_days
+        used = getattr(self, "_s1_used", cfg.s1_source)
+        s1_max_span = max(cfg.max_span_days, 730) if used == "OPERA_DISP_S1" else cfg.max_span_days
+        if cfg.s1_source == "AUTO" and s1_all:
+            notes.append(Note("search", INFO, f"Sentinel-1 source chosen automatically: "
+                                              f"{'ARIA interferograms' if used == 'ARIA_S1_GUNW' else 'OPERA DISP-S1'}."))
         nisar, n1 = select_pairs(nisar_all, cfg.max_pairs, cfg.min_span_days, cfg.max_span_days,
                                  cfg.nisar_flight_direction)
         s1, n2 = select_pairs(s1_all, cfg.max_pairs, cfg.min_span_days, s1_max_span, cfg.s1_flight_direction)

@@ -11,4 +11,6 @@ shapely>=2.0
 matplotlib>=3.7
 pyyaml>=6.0
 asf_search>=8.0
-streamlit>=1.40
+streamlit>=1.46
+folium>=0.17
+streamlit-folium>=0.22

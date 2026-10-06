@@ -4,3 +4,14 @@ maxUploadSize = 500   # MB, for published velocity maps / GNSS tables
 
 [browser]
 gatherUsageStats = false
+
+[client]
+toolbarMode = "viewer"   # hide developer menus from visitors
+
+[theme]
+base = "light"
+primaryColor = "#1f5f8b"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f1f4f7"
+textColor = "#1f2933"
+font = "sans serif"
