@@ -1,5 +1,7 @@
 # OpenSAR Explorer
 
+*Created by **Deepa Kumari***
+
 **An open-source platform for exploring the Earth with satellite radar (SAR), explained in plain language.**
 
 OpenSAR Explorer is built as a set of modules. The first, **Ground Motion**, is available now:

@@ -7,6 +7,7 @@ name = "sarcompare"
 version = "0.1.0"
 description = "OpenSAR Explorer: open-source satellite radar (SAR) analysis. Ground Motion module: NISAR vs Sentinel-1 InSAR, side by side, with interpretation."
 readme = "README.md"
+authors = [{ name = "Deepa Kumari" }]
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24",
