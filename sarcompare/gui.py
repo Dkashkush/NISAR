@@ -231,13 +231,17 @@ def choose_checks(n: int):
                                  help="For example EGMS Ortho tiles (Europe: the vertical 'U' and east-west 'E' "
                                       "files are recognised automatically), LiCSAR/COMET or OPERA velocity maps, "
                                       "or data from a paper.")
-        with st.expander("Where do I get EGMS maps? (Europe)"):
-            st.markdown("1. Open [egms.land.copernicus.eu](https://egms.land.copernicus.eu) and sign in (free EU "
-                        "Login).\n2. Choose the **Ortho** product, the most recent period, and the 100 km tile "
-                        "that covers your area.\n3. Download the **vertical (U)** and, if you like, the "
-                        "**east-west (E)** files, unzip them, and upload the `.tiff` files here.\n\nEGMS is made "
-                        "from Sentinel-1 by the EU Copernicus programme and calibrated with GNSS, so it is an "
-                        "independent check. Its periods end before NISAR's start, which is fine for steady motion.")
+        with st.expander("EGMS maps for Europe: automatic with a free key"):
+            st.markdown("EGMS (the EU's European Ground Motion Service) maps ground motion across Europe from "
+                        "Sentinel-1, calibrated with GNSS, so it is an independent check. With your free EGMS key "
+                        "the app downloads the right tiles itself:\n1. Sign in at "
+                        "[egms.land.copernicus.eu](https://egms.land.copernicus.eu) (free EU Login).\n2. In the "
+                        "Explorer, right-click any **download** link and copy it: it ends with `?id=` followed by "
+                        "your key.\n3. Paste the part after `id=` below.\n\nOr download the **Ortho** vertical "
+                        "(U) and east-west (E) tiles yourself and upload the `.tiff` files above. EGMS periods "
+                        "end before NISAR's start, which is fine for steady motion.")
+            egms_key = st.text_input("EGMS download key (used only for this run, never stored)", type="password",
+                                     key="egms_key")
         pub = []
         manual = [f for f in files or [] if not egms_defaults(f.name)]
         for f in files or []:
@@ -264,9 +268,8 @@ def choose_checks(n: int):
                 pub.append((f, {"label": Path(f.name).stem, "units": units.split(" ")[0], "component": comp,
                                 "sign": 1 if sign.startswith("up") else -1, "incidence_deg": inc,
                                 "period_years": years, "citation": cite}))
-        pub_spec = None
     lit = published_values_editor()
-    return gnss, gnss_csv, pub, pub_spec, lit
+    return gnss, gnss_csv, pub, (egms_key or "").strip() or None, lit
 
 
 def published_values_editor() -> list[dict]:
@@ -353,7 +356,7 @@ def advanced_settings():
 def build_config(mode, bbox, period, checks, token, adv, local_dirs) -> Config:
     from sarcompare.demo import demo_config
 
-    gnss, gnss_csv, pub, pub_spec, lit = checks
+    gnss, gnss_csv, pub, egms_key, lit = checks
     if mode == MODE_DEMO:
         cfg = demo_config()
         if not gnss:
@@ -366,6 +369,7 @@ def build_config(mode, bbox, period, checks, token, adv, local_dirs) -> Config:
         cfg = Config(**kw)
         cfg.gnss = "NGL" if gnss else None
         cfg.earthdata_token = token or None  # per session; never os.environ (shared by all users of a server)
+        cfg.egms_token = egms_key  # likewise per session
     if gnss and gnss_csv is not None:
         cfg.gnss = save_upload(gnss_csv)
     if pub:

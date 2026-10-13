@@ -55,6 +55,7 @@ class Config:
     #                    rate_mm_yr (vertical, negative = sinking), rate_min_mm_yr, rate_max_mm_yr, radius_km, period}]
 
     earthdata_token: str | None = field(default=None, repr=False)  # per-run credential; never written to disk
+    egms_token: str | None = field(default=None, repr=False)  # EGMS download key (Europe); never written to disk
 
     stream_remote: bool = True  # read only the needed parts of remote files instead of downloading them
 
@@ -97,6 +98,7 @@ class Config:
     def to_dict(self) -> dict:
         d = asdict(self)
         d.pop("earthdata_token", None)
+        d.pop("egms_token", None)
         d["start"] = str(self.start) if self.start else None
         d["end"] = str(self.end) if self.end else None
         return d

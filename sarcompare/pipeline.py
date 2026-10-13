@@ -453,6 +453,7 @@ class Pipeline:
             except Exception as e:  # network or file problems must not lose the whole comparison
                 notes = [Note("validate", WARN, f"GNSS validation failed: {type(e).__name__}: {e}")]
             self.emit("validate", "Compared with GNSS", notes)
+        self._egms_download()
         for raw in cfg.published_maps:
             spec = {**V.egms_defaults(raw.get("path", "")), **raw}  # EGMS tiles are recognised by name
             targets = rates
@@ -480,6 +481,26 @@ class Pipeline:
             except Exception as e:
                 notes = [Note("validate", WARN, f"Could not compare with published values: {type(e).__name__}: {e}")]
             self.emit("validate", f"Compared with {len(cfg.published_values)} published value(s) from studies", notes)
+
+    def _egms_download(self) -> None:
+        """With an EGMS key and an area in Europe, fetch the EGMS Ortho maps as an independent check."""
+        from . import egms
+        from . import validate as V
+
+        cfg, r = self.cfg, self.result
+        if not cfg.egms_token or not egms.in_europe(self.aoi):
+            return
+        if any(V.egms_defaults(m.get("path", "")) for m in cfg.published_maps):
+            return  # EGMS maps given already
+        comps = ("U", "E") if any(v is not None for v in r.east.values()) else ("U",)
+        try:
+            maps, notes = egms.download(self.aoi, cfg.egms_token, Path(cfg.data_dir) / "egms", comps)
+        except Exception as e:  # key refused, no tile, network: the other checks still run
+            self.emit("validate", "EGMS maps could not be downloaded",
+                      [Note("validate", WARN, f"EGMS: {e}")])
+            return
+        cfg.published_maps = list(cfg.published_maps) + [{"path": str(p)} for p in maps.values()]
+        self.emit("validate", "Downloaded EGMS Ortho maps for the area", notes)
 
     def make_figures(self) -> None:
         r = self.result
@@ -555,7 +576,7 @@ class Pipeline:
             self.download()
         self.load_and_stack()
         self.reference_and_compare()
-        if self.cfg.gnss or self.cfg.published_maps or self.cfg.published_values:
+        if self.cfg.gnss or self.cfg.published_maps or self.cfg.published_values or self.cfg.egms_token:
             self.validate()
         self.make_figures()
         self.write_outputs()
