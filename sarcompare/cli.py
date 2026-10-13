@@ -18,6 +18,8 @@ def _load(args) -> Config:
     cfg = Config.from_yaml(args.config)
     if getattr(args, "output_dir", None):
         cfg.output_dir = args.output_dir
+    if getattr(args, "max_pairs", None):
+        cfg.max_pairs = args.max_pairs
     return cfg
 
 
@@ -69,11 +71,13 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("search", help="search ASF and show the pairs that would be used")
     s.add_argument("config")
+    s.add_argument("--max-pairs", type=int, help="image pairs per satellite (overrides the config)")
     s.set_defaults(func=cmd_search)
     r = sub.add_parser("run", help="full workflow: search, download, compare, report")
     r.add_argument("config")
     r.add_argument("--output-dir")
     r.add_argument("--no-download", action="store_true", help="only use files already present locally")
+    r.add_argument("--max-pairs", type=int, help="image pairs per satellite (overrides the config)")
     r.set_defaults(func=cmd_run)
     d = sub.add_parser("demo", help="run on synthetic data (no account or download needed)")
     d.add_argument("--data-dir", default="data/demo")

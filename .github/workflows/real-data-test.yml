@@ -1,0 +1,109 @@
+# Runs OpenSAR Explorer on REAL NISAR + Sentinel-1 data on GitHub's servers and keeps the results.
+#
+# One-time setup: create a free NASA Earthdata token (urs.earthdata.nasa.gov -> Generate Token), then in this
+# repository: Settings -> Secrets and variables -> Actions -> New repository secret, name EARTHDATA_TOKEN.
+# Run it: Actions tab -> "Real-data test" -> Run workflow -> choose a test site.
+# Results: the run's Summary page, plus a downloadable "results" artifact (report, maps, GeoTIFFs, metrics).
+
+name: Real-data test
+
+on:
+  workflow_dispatch:
+    inputs:
+      site:
+        description: "Test site"
+        type: choice
+        options: [central_valley, mexico_city]
+        default: central_valley
+      max_pairs:
+        description: "Image pairs per satellite (fewer = faster, noisier)"
+        type: choice
+        options: ["3", "4", "6", "8"]
+        default: "4"
+
+concurrency:
+  group: real-data-test
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      EARTHDATA_TOKEN: ${{ secrets.EARTHDATA_TOKEN }}
+      SITE: ${{ inputs.site }}
+      MAX_PAIRS: ${{ inputs.max_pairs }}
+    steps:
+      - name: Check the Earthdata token
+        run: |
+          if [ -z "$EARTHDATA_TOKEN" ]; then
+            echo "::error::EARTHDATA_TOKEN secret is not set. See the setup notes at the top of .github/workflows/real-data-test.yml."
+            exit 1
+          fi
+          case "$SITE" in central_valley|mexico_city) ;; *) echo "::error::unknown site $SITE"; exit 1;; esac
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      - name: 1. Search (what data exists)
+        run: sarcompare --debug search "examples/$SITE.yaml" --max-pairs "$MAX_PAIRS"
+
+      - name: 2. Download, compare and validate
+        run: sarcompare --debug run "examples/$SITE.yaml" --max-pairs "$MAX_PAIRS"
+
+      - name: 3. Results summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, os, pathlib
+          site = os.environ["SITE"]
+          path = pathlib.Path("outputs") / site / "metrics.json"
+          out = []
+          if not path.exists():
+              out.append(f"## {site}: no results\n\nThe run stopped before producing results; see the step logs above.")
+          else:
+              m = json.loads(path.read_text())
+              c = m["comparison"]
+              def f(v, nd=1):
+                  return "n/a" if v is None or v != v else f"{v:.{nd}f}"
+              out.append(f"## {site}: real-data results\n")
+              out.append("| | NISAR | Sentinel-1 |\n|---|---|---|")
+              out.append(f"| Pairs | {m['nisar']['n_pairs']} | {m['sentinel1']['n_pairs']} |")
+              out.append(f"| Period | {m['nisar']['date_start']} → {m['nisar']['date_end']} | "
+                         f"{m['sentinel1']['date_start']} → {m['sentinel1']['date_end']} |")
+              out.append(f"| Area covered | {c['coverage_a']:.0%} | {c['coverage_b']:.0%} |")
+              out.append(f"| Mean coherence | {f(c['coh_mean_a'], 2)} | {f(c['coh_mean_b'], 2)} |")
+              out.append(f"| Rate noise (mm/yr) | {f(c['noise_a_mm_yr'])} | {f(c['noise_b_mm_yr'])} |")
+              g = (m.get("validation") or {}).get("gnss")
+              if g:
+                  s = g["stats"]
+                  out.append(f"| GNSS RMSE (mm/yr) | {f(s.get('NISAR', {}).get('rmse_mm_yr'))} "
+                             f"(n={s.get('NISAR', {}).get('n')}) | {f(s.get('Sentinel-1', {}).get('rmse_mm_yr'))} "
+                             f"(n={s.get('Sentinel-1', {}).get('n')}) |")
+              out.append(f"\n**Agreement between satellites:** r = {f(c['pearson_r'], 2)}, slope {f(c['slope'], 2)}, "
+                         f"RMS difference {f(c['rmsd_mm_yr'])} mm/yr over {c['n_joint']} pixels.\n")
+              out.append("### Interpretation notes\n")
+              icon = {"good": "✅", "warn": "⚠️"}
+              for n in m["notes"]:
+                  out.append(f"- {icon.get(n['level'], 'ℹ️')} **{n['stage']}**: {n['text']}")
+          text = "\n".join(out)
+          print(text)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+              fh.write(text + "\n")
+          PY
+
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-${{ inputs.site }}
+          path: outputs/
+          retention-days: 30
+          if-no-files-found: warn

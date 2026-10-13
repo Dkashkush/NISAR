@@ -536,6 +536,12 @@ def page_help():
             "Credit NASA/ISRO for NISAR and ESA's Copernicus programme for Sentinel-1, accessed via the Alaska "
             "Satellite Facility; GNSS from the Nevada Geodetic Laboratory. Check each provider's citation "
             "guidance."),
+        "Can it predict disasters?": (
+            "No. It shows **where** the ground is already moving and roughly **how fast**, which helps find areas "
+            "that need closer study (a sinking neighbourhood, a creeping slope, ground around a mine). It cannot "
+            "tell **whether or when** a landslide will fail, a building will be damaged, or an earthquake will "
+            "happen. That needs continuous monitoring, ground instruments, field investigation and the responsible "
+            "authorities. Think of it as hazard screening, not a forecast."),
         "Can I use this for decisions about safety?": (
             "No. This is a research and learning tool. Results should be verified by qualified experts using field "
             "observations before any decision."),

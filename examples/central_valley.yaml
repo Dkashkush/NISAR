@@ -1,0 +1,27 @@
+# Central Valley, California (around Corcoran): well-documented agricultural subsidence from groundwater pumping.
+# Best first real-data test: ready-made Sentinel-1 products exist here (ARIA GUNW / OPERA DISP-S1) and there
+# are many GNSS stations to check against. Needs a free NASA Earthdata login.
+name: central_valley
+aoi: [-119.80, 35.90, -119.40, 36.20]   # west, south, east, north (degrees)
+start: 2025-10-01
+end: null                        # null = up to today
+
+nisar_source: ASF
+nisar_flight_direction: null
+nisar_apply_ionosphere: true
+
+s1_source: AUTO                  # tries ARIA GUNW, then OPERA DISP-S1
+s1_flight_direction: null
+
+max_pairs: 6
+min_span_days: 12
+max_span_days: 96
+coherence_threshold: 0.35
+resolution_m: 90
+project_to_vertical: true
+reference_lonlat: null
+
+gnss: NGL
+
+data_dir: data
+output_dir: outputs

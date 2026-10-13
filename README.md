@@ -175,6 +175,18 @@ For areas outside ARIA/OPERA coverage (e.g. India), use HyP3 on-demand products 
 | `project_to_vertical` | LOS → vertical, assuming no horizontal motion |
 | `nisar_sign`, `s1_sign` | Flip a product's sign convention if the sanity check flags a mismatch |
 
+## Testing on real data (GitHub Actions)
+
+The repository includes a **Real-data test** workflow that runs the full pipeline on real NISAR and Sentinel-1
+data on GitHub's servers. No local install is needed.
+
+1. Add your NASA Earthdata token as a repository secret named `EARTHDATA_TOKEN`
+   (Settings → Secrets and variables → Actions).
+2. **Actions** → **Real-data test** → **Run workflow**, then choose a site: `central_valley` (best first test:
+   Sentinel-1 products and many GNSS stations) or `mexico_city`.
+3. Read the results on the run's **Summary** page and download the `results-…` artifact (report, maps,
+   GeoTIFFs and metrics).
+
 ## Validating against published data
 
 InSAR should always be checked against something independent. The app supports three kinds of reference data.
@@ -232,6 +244,10 @@ file-name parsing (including acquisitions that cross midnight), the GUNW mask de
 pipeline.
 
 ## Reading the results responsibly
+
+**It does not predict disasters.** It shows where the ground is already moving and roughly how fast, which
+helps decide where to look more closely. Whether or when something will fail needs monitoring, field work
+and the responsible authorities.
 
 - **Rates are relative** to the reference point.
 - **Vertical projection assumes no horizontal motion.** Landslides and faults also move sideways. Combine
