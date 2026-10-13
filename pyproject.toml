@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sarcompare"
 version = "0.1.0"
-description = "Download NISAR and Sentinel-1 InSAR products over one region and compare them side by side, with interpretation."
+description = "OpenSAR Explorer: open-source satellite radar (SAR) analysis. Ground Motion module: NISAR vs Sentinel-1 InSAR, side by side, with interpretation."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

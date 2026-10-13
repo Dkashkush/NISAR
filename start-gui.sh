@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the NISAR vs Sentinel-1 app (macOS / Linux). First run installs everything (a few minutes).
+# Start OpenSAR Explorer (macOS / Linux). First run installs everything (a few minutes).
 set -e
 cd "$(dirname "$0")"
 if [ ! -x .venv/bin/python ]; then

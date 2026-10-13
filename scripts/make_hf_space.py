@@ -16,14 +16,14 @@ INCLUDE = ["sarcompare", "app.py", "Dockerfile", ".dockerignore", "requirements.
            "pyproject.toml", ".streamlit/config.toml", "examples", "docs"]
 
 HEADER = """---
-title: NISAR vs Sentinel-1
+title: OpenSAR Explorer
 emoji: 🛰️
 colorFrom: blue
 colorTo: indigo
 sdk: docker
 app_port: 7860
 pinned: false
-short_description: Compare NISAR L-band and Sentinel-1 C-band InSAR side by side
+short_description: Satellite radar explorer: NISAR vs Sentinel-1 ground motion
 ---
 
 """

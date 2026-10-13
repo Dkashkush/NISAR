@@ -64,7 +64,7 @@ def cmd_gui(args) -> int:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="sarcompare", description="Compare NISAR and Sentinel-1 InSAR over one area.")
+    ap = argparse.ArgumentParser(prog="sarcompare", description="OpenSAR Explorer: compare NISAR and Sentinel-1 ground motion over one area.")
     ap.add_argument("--debug", action="store_true", help="show full tracebacks")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("search", help="search ASF and show the pairs that would be used")

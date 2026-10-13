@@ -4,7 +4,7 @@
    and unzip it. You get a folder `hf-space/` with 34 files.
 2. **Create an account** at <https://huggingface.co/join> and confirm your email.
 3. **Create the Space:** <https://huggingface.co/new-space>
-   - Space name: e.g. `nisar-vs-sentinel1`
+   - Space name: e.g. `opensar-explorer`
    - License: e.g. MIT
    - SDK: **Docker**, then template **Blank**
    - Hardware: **CPU basic (free)**

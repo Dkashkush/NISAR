@@ -1,5 +1,5 @@
 @echo off
-REM Double-click to start the NISAR vs Sentinel-1 app (Windows). First run installs everything (a few minutes).
+REM Double-click to start OpenSAR Explorer (Windows). First run installs everything (a few minutes).
 cd /d "%~dp0"
 if not exist .venv\Scripts\python.exe (
   echo Setting up Python environment, please wait...

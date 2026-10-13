@@ -1,4 +1,4 @@
-"""Graphical interface: a guided, map-based web app (runs in your browser).
+"""OpenSAR Explorer graphical interface: a guided, map-based web app (runs in your browser).
 
 Start it with ``sarcompare gui`` (or double-click Start-GUI.bat / start-gui.command / start-gui.sh).
 """
@@ -35,6 +35,8 @@ CSS = """
   border-radius:10px;margin:0 0 6px}
 .app-banner h1{color:#fff;font-size:1.55rem;line-height:1.25;margin:0;padding:0}
 .app-banner p{margin:6px 0 0;color:#d6e4f0;font-size:.98rem}
+.app-banner .module{display:inline-block;background:rgba(255,255,255,.16);color:#fff;border:1px solid
+  rgba(255,255,255,.35);border-radius:999px;padding:1px 10px;margin-right:8px;font-size:.85rem;font-weight:600}
 .step{display:flex;align-items:center;gap:10px;font-size:1.18rem;font-weight:650;margin:26px 0 6px;color:#1f2933}
 .step .n{background:#1f5f8b;color:#fff;border-radius:50%;min-width:30px;height:30px;display:inline-flex;
   align-items:center;justify-content:center;font-size:.95rem}
@@ -79,14 +81,15 @@ def save_upload(f) -> str:
 
 def header():
     st.markdown(
-        '<div class="app-banner"><h1>🛰️ Ground Motion Explorer: NISAR &amp; Sentinel-1</h1>'
-        "<p>See where the ground is sinking or rising, measured by two radar satellites, side by side, "
-        "explained in plain language.</p></div>", unsafe_allow_html=True)
+        '<div class="app-banner"><h1>🛰️ OpenSAR Explorer</h1>'
+        '<p><span class="module">Ground Motion module</span> See where the ground is sinking or rising, '
+        "measured by two radar satellites (NISAR and Sentinel-1), side by side, explained in plain "
+        "language.</p></div>", unsafe_allow_html=True)
 
 
 def footer():
     st.markdown(
-        '<div class="app-footer">Independent open-source tool. Not affiliated with NASA, ISRO, ESA, ASF or USGS. '
+        '<div class="app-footer">OpenSAR Explorer is an independent open-source tool. Not affiliated with NASA, ISRO, ESA, ASF or USGS. '
         "Data: NISAR (NASA/ISRO) and Copernicus Sentinel-1 (ESA) via the "
         '<a href="https://asf.alaska.edu" target="_blank">Alaska Satellite Facility</a>; GNSS from the '
         '<a href="https://geodesy.unr.edu" target="_blank">Nevada Geodetic Laboratory</a>; base maps © '
@@ -544,7 +547,7 @@ def page_help():
 
 
 def main():
-    st.set_page_config(page_title="Ground Motion Explorer: NISAR & Sentinel-1", page_icon="🛰️", layout="wide")
+    st.set_page_config(page_title="OpenSAR Explorer: Ground Motion", page_icon="🛰️", layout="wide")
     st.markdown(CSS, unsafe_allow_html=True)
     nav = st.navigation([st.Page(page_explore, title="Explore", icon=":material/map:", default=True),
                          st.Page(page_learn, title="Learn", icon=":material/school:"),

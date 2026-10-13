@@ -156,8 +156,9 @@ def build_report(r) -> str:
 
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>NISAR vs Sentinel-1</title><style>{CSS}</style></head>
+<title>OpenSAR Explorer: Ground Motion report</title><style>{CSS}</style></head>
 <body><main>
+<p class="sub" style="margin:0 0 2px">OpenSAR Explorer · Ground Motion module</p>
 <h1>NISAR vs Sentinel-1: {e(cfg.name)}</h1>
 <p class="sub">AOI {w:.3f}–{ea:.3f}°E, {s:.3f}–{n:.3f}°N · grid {cfg.resolution_m:.0f} m ·
 coherence threshold {cfg.coherence_threshold} · {e(a.component)} rates · generated {datetime.now():%Y-%m-%d %H:%M}</p>

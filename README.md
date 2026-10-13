@@ -1,8 +1,15 @@
-# NISAR vs Sentinel-1: side-by-side InSAR comparison
+# OpenSAR Explorer
 
-An application that **downloads NISAR (L-band) and Sentinel-1 (C-band) interferometric products over the
-same area, puts them on one grid, and compares them side by side**. It explains what the results mean at
-every step: coverage, coherence, agreement, artefacts, and which moving areas each satellite detects.
+**An open-source platform for exploring the Earth with satellite radar (SAR), explained in plain language.**
+
+OpenSAR Explorer is built as a set of modules. The first, **Ground Motion**, is available now:
+
+> **Ground Motion module.** Downloads NISAR (L-band) and Sentinel-1 (C-band) interferometric products over
+> the same area, puts them on one grid, and compares them side by side. It checks them against GNSS and
+> published maps, and explains what the results mean at every step: coverage, coherence, agreement,
+> artefacts, and which moving areas each satellite detects.
+
+More modules can be added on the same foundation (see the [Roadmap](#roadmap)).
 
 ![Side-by-side rate maps from the synthetic demo](docs/demo_rate_maps.png)
 
@@ -111,6 +118,8 @@ What to expect online:
   settings for a public app, or everyone would download with your account.
 
 ## Command line
+
+The Python package and command are called `sarcompare` (OpenSAR Explorer's technical name).
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -257,7 +266,19 @@ examples/         example configs
 tests/            unit + end-to-end tests
 ```
 
-## Ideas to extend it
+## Roadmap
+
+OpenSAR Explorer is designed to grow beyond ground motion. These modules are **ideas, not yet built**:
+
+| Possible module | What it would show | Data |
+|---|---|---|
+| Floods & surface water | Where land is newly flooded or dried out | NISAR GCOV, Sentinel-1 RTC backscatter |
+| Vegetation & biomass | Forest cover, crop growth and change | NISAR L-band polarimetry |
+| Soil moisture | Wet and dry ground over seasons | NISAR soil-moisture products |
+| Glaciers & fast landslides | Movement too fast for interferometry | NISAR pixel offsets (GOFF) |
+| More satellites | The same comparisons with other radars | e.g. ALOS-4, Sentinel-1C/D |
+
+### Improvements planned for the Ground Motion module
 
 - Ascending + descending decomposition into vertical and east–west motion.
 - Full SBAS time series (e.g. export to MintPy) instead of rate stacking, for seasonal signals.
