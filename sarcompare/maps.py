@@ -7,10 +7,11 @@ import html
 import io
 
 import folium
+from folium.template import Template
 import matplotlib
 import numpy as np
 from branca.colormap import LinearColormap
-from folium.plugins import Draw
+from folium.plugins import Draw, Geocoder
 from pyproj import Transformer
 
 from .plots import THEMES, _diverging
@@ -74,6 +75,32 @@ def _zoom_for(w: float, s: float, e: float, n: float, width_px: int = 800) -> in
     return int(max(2, min(16, math.floor(math.log2(360 * width_px / (256 * span))) - 1)))
 
 
+class _PlaceSearch(Geocoder):
+    """Place search box (OpenStreetMap Nominatim). Pinned to a fixed version: unpinned plugin assets have broken
+    before when a new release moved its files. Wrapped in try/catch and added last, so that if the search script
+    cannot load, the rest of the map (including the drawing tool) still works."""
+
+    _template = Template("""
+        {% macro script(this, kwargs) %}
+            try {
+                var opts_{{ this.get_name() }} = {{ this.options|tojavascript }};
+                opts_{{ this.get_name() }}["geocoder"] = L.Control.Geocoder[opts_{{ this.get_name() }}["provider"]](
+                    opts_{{ this.get_name() }}["providerOptions"]);
+                L.Control.geocoder(opts_{{ this.get_name() }}).on("markgeocode", function (e) {
+                    {{ this._parent.get_name() }}.setView(e.geocode.center, opts_{{ this.get_name() }}["zoom"] || 10);
+                }).addTo({{ this._parent.get_name() }});
+            } catch (err) {
+                console.warn("Place search unavailable:", err);
+            }
+        {% endmacro %}
+    """)
+
+    default_js = [("Control.Geocoder.js",
+                   "https://cdn.jsdelivr.net/npm/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.js")]
+    default_css = [("Control.Geocoder.css",
+                    "https://cdn.jsdelivr.net/npm/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.css")]
+
+
 def picker_map(bbox: tuple[float, float, float, float] | None, height_hint: str = "") -> folium.Map:
     """Map with a rectangle tool; shows the current area if one is set."""
     if bbox:
@@ -90,6 +117,8 @@ def picker_map(bbox: tuple[float, float, float, float] | None, height_hint: str 
                        "circlemarker": False, "rectangle": {"shapeOptions": {"color": "#d95926"}}},
          edit_options={"edit": False, "remove": False}).add_to(m)
     folium.LayerControl(position="topright", collapsed=True).add_to(m)
+    _PlaceSearch(collapsed=False, position="topright", add_marker=False, zoom=10,
+                 placeholder="Search a place, e.g. Jakarta").add_to(m)  # last: a failure here cannot affect the rest
     return m
 
 

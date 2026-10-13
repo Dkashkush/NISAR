@@ -124,7 +124,7 @@ def choose_area():
     from sarcompare.aoi import AOI
     from sarcompare.maps import EXAMPLE_PLACES, bbox_from_drawing, picker_map
 
-    step(2, "Where?", "Pick an example place, or draw a box on the map with the square ▢ tool on its left side.")
+    step(2, "Where?", "Choose the area on the map: find your place, then draw a box around it.")
     side, mapcol = st.columns([2, 3], gap="large")
     with side:
         options = ["(choose an example place)"] + list(EXAMPLE_PLACES)
@@ -156,6 +156,9 @@ def choose_area():
         else:
             st.info("No area selected yet.")
     with mapcol:
+        st.markdown("**1.** Find your place: type its name in the search box (top right of the map), or zoom with "
+                    "the mouse wheel.  \n**2.** Click the **square ▢ button** on the left of the map.  \n"
+                    "**3.** Click and drag to draw a box around your area. Draw again to replace it.")
         out = st_folium(picker_map(bbox), height=430, use_container_width=True,
                         returned_objects=["last_active_drawing"], key="picker")
         drawn = bbox_from_drawing((out or {}).get("last_active_drawing"))
