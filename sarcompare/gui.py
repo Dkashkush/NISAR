@@ -210,13 +210,16 @@ def published_values_editor() -> list[dict]:
         empty = pd.DataFrame({"Citation": pd.Series(dtype="str"), "Place": pd.Series(dtype="str"),
                               "Longitude": pd.Series(dtype="float"), "Latitude": pd.Series(dtype="float"),
                               "Rate (mm/yr)": pd.Series(dtype="float"), "Direction": pd.Series(dtype="str"),
-                              "Period": pd.Series(dtype="str")})
+                              "Reported as": pd.Series(dtype="str"), "Period": pd.Series(dtype="str")})
         table = st.data_editor(
             empty, num_rows="dynamic", use_container_width=True, key="lit_table",
             column_config={
                 "Citation": st.column_config.TextColumn(help="e.g. Smith et al. (2021), Journal, volume"),
                 "Rate (mm/yr)": st.column_config.NumberColumn(min_value=0.0, help="Size of the motion"),
                 "Direction": st.column_config.SelectboxColumn(options=["sinking", "rising"], default="sinking"),
+                "Reported as": st.column_config.SelectboxColumn(
+                    options=["typical rate", "peak"], default="typical rate",
+                    help="'peak' if the paper gives the fastest motion there (e.g. 'up to', 'peaks of')"),
                 "Period": st.column_config.TextColumn(help="Years the study covers, e.g. 2015-2020"),
             })
     values = []
@@ -229,7 +232,9 @@ def published_values_editor() -> list[dict]:
             continue
         sign = 1.0 if str(row.get("Direction")) == "rising" else -1.0
         values.append({"citation": str(row.get("Citation") or "").strip(), "place": str(row.get("Place") or ""),
-                       "lon": lon, "lat": lat, "rate_mm_yr": sign * abs(rate), "period": str(row.get("Period") or "")})
+                       "lon": lon, "lat": lat, "rate_mm_yr": sign * abs(rate), "period": str(row.get("Period") or ""),
+                       "stat": "peak" if str(row.get("Reported as")) == "peak" else "median",
+                       "radius_km": 2.0 if str(row.get("Reported as")) == "peak" else 1.0})
     return values
 
 

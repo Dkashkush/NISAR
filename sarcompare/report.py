@@ -76,6 +76,8 @@ def _literature_table(checks) -> str:
     for c in checks:
         pub = (f"{c.published_min:+.0f} to {c.published_max:+.0f}" if c.published_min is not None
                and c.published_max is not None else f"{c.published_mm_yr:+.0f}")
+        if getattr(c, "stat", "median") == "peak":
+            pub += "<br><small>peak</small>"
         cells = "".join(f"<td>{_num(c.insar.get(s, float('nan')), 0)}<br><small>{e(VERDICT.get(c.verdict.get(s), ''))}"
                         f"</small></td>" for s in ("NISAR", "Sentinel-1"))
         rows.append(f"<tr><td>{e(c.citation)}</td><td>{e(c.place or f'{c.lat:.4f}, {c.lon:.4f}')}</td>"
@@ -86,7 +88,9 @@ def _literature_table(checks) -> str:
     return ('<h3 style="margin:18px 0 6px">Published studies</h3><div class="scroll"><table><thead><tr>'
             "<th>Study</th><th>Place</th><th>Period</th><th>Published (mm/yr)</th><th>NISAR (mm/yr)</th>"
             f"<th>Sentinel-1 (mm/yr)</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
-            f'<p class="sub" style="margin-top:6px">Vertical rates, negative = sinking. {e(note)}</p>')
+            f'<p class="sub" style="margin-top:6px">Vertical rates, negative = sinking. Where the study reports a '
+            "peak, this run's value is the fastest-moving 2% of its pixels nearby; otherwise the median. "
+            f"{e(note)}</p>")
 
 
 def _references(r) -> str:

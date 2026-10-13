@@ -490,12 +490,19 @@ class LiteratureCheck:
     published_min: float | None
     published_max: float | None
     period: str
-    insar: dict = field(default_factory=dict)  # sensor -> median rate (mm/yr) within radius
+    stat: str = "median"  # what the paper reports: "median" (typical rate there) or "peak" (fastest motion there)
+    insar: dict = field(default_factory=dict)  # sensor -> rate (mm/yr) within radius, by ``stat``
     absolute: dict = field(default_factory=dict)  # sensor -> True if tied to GNSS (absolute), else relative
     verdict: dict = field(default_factory=dict)  # sensor -> consistent | differs | no data | outside area
 
 
-def _rate_in_radius(rm: RateMap, lon: float, lat: float, radius_km: float) -> tuple[float, str]:
+PEAK_PERCENTILE = 98  # a published "peak" is compared with the fastest 2% of our pixels there, not one pixel
+
+
+def _rate_in_radius(rm: RateMap, lon: float, lat: float, radius_km: float, stat: str = "median",
+                    sign: float = -1.0) -> tuple[float, str]:
+    """Rate (mm/yr) within ``radius_km`` of a point: the median, or for ``stat="peak"`` the fastest motion in the
+    direction ``sign`` (-1 sinking, +1 rising), taken as a high percentile so a single bad pixel cannot set it."""
     x, y = Transformer.from_crs("EPSG:4326", rm.rate.rio.crs, always_xy=True).transform(lon, lat)
     xs, ys = rm.rate.x.values, rm.rate.y.values
     if not (xs.min() <= x <= xs.max() and ys.min() <= y <= ys.max()):
@@ -509,6 +516,8 @@ def _rate_in_radius(rm: RateMap, lon: float, lat: float, radius_km: float) -> tu
     vals = vals[(np.hypot(X - x, Y - y) <= r) & np.isfinite(vals)]
     if vals.size == 0:
         return float("nan"), "no data"
+    if stat == "peak":
+        return float(sign * np.percentile(sign * vals, PEAK_PERCENTILE)), ""
     return float(np.median(vals)), ""
 
 
@@ -525,7 +534,10 @@ def parse_published_value(v: dict) -> dict:
         rate, lo, hi = rate * f, (lo * f if lo is not None else None), (hi * f if hi is not None else None)
     if lo is not None and hi is not None and lo > hi:
         lo, hi = hi, lo
-    return {"citation": str(v.get("citation", "")).strip() or "(no citation given)",
+    stat = str(v.get("stat", "median")).strip().lower()
+    if stat not in ("median", "peak"):
+        raise ValueError(f"Published value from {v.get('citation')!r}: stat must be 'median' or 'peak'")
+    return {"stat": stat, "citation": str(v.get("citation", "")).strip() or "(no citation given)",
             "place": str(v.get("place", "")).strip(), "lon": _std_lon(float(v["lon"])), "lat": float(v["lat"]),
             "radius_km": float(v.get("radius_km") or 1.0), "rate": rate,
             "lo": float(lo) if lo is not None else None, "hi": float(hi) if hi is not None else None,
@@ -544,9 +556,10 @@ def validate_literature(values: list[dict], rates: list[RateMap], gnss: GnssVali
     for raw in values:
         v = parse_published_value(raw)
         chk = LiteratureCheck(v["citation"], v["place"], v["lon"], v["lat"], v["radius_km"], v["rate"],
-                              v["lo"], v["hi"], v["period"])
+                              v["lo"], v["hi"], v["period"], v["stat"])
         for rm in rates:
-            val, problem = _rate_in_radius(rm, v["lon"], v["lat"], v["radius_km"])
+            val, problem = _rate_in_radius(rm, v["lon"], v["lat"], v["radius_km"], v["stat"],
+                                           -1.0 if v["rate"] < 0 else 1.0)
             stats = gnss.stats.get(rm.sensor) if gnss is not None else None
             absolute = tied or bool(stats is not None and stats.n >= 2 and math.isfinite(stats.offset_mm_yr))
             if absolute and not tied and math.isfinite(val):

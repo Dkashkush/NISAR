@@ -32,5 +32,52 @@ gnss: NGL                        # Nevada Geodetic Lab stations inside the AOI (
 #     incidence_deg: 39
 #     period: 2016-2024
 
+# Rates from published studies (vertical, mm/yr, negative = sinking), taken from the papers themselves.
+# Their periods (2007-2011, 2017-2019) differ from NISAR's (2025 onwards); Mexico City's subsidence has been close
+# to linear for decades (Cigna & Tapete 2021, section 3), so similar rates are expected, not identical ones.
+# "peak" values are compared with the fastest-moving 2% of this run's pixels within radius_km.
+published_values:
+  - citation: "Cigna, F., & Tapete, D. (2021). Present-day land subsidence rates, surface faulting hazard and risk in Mexico City with 2014-2020 Sentinel-1 IW InSAR. Remote Sensing of Environment, 253, 112161. https://doi.org/10.1016/j.rse.2020.112161"
+    place: "GNSS station MMX1, Mexico City airport (GPS rate, p. 9)"
+    lon: -99.0684                  # station position from the Nevada Geodetic Laboratory
+    lat: 19.4317
+    radius_km: 0.5
+    rate_mm_yr: -294               # GPS, Oct 2017 - Oct 2019 (InSAR in the paper: -303; GPS 2008-2020: -265)
+    period: "Oct 2017 - Oct 2019"
+  - citation: "Cigna, F., & Tapete, D. (2021). Present-day land subsidence rates, surface faulting hazard and risk in Mexico City with 2014-2020 Sentinel-1 IW InSAR. Remote Sensing of Environment, 253, 112161. https://doi.org/10.1016/j.rse.2020.112161"
+    place: "Central Nezahualcoyotl (peaks, p. 7; approximate centre of the district)"
+    lon: -99.017
+    lat: 19.400
+    radius_km: 3
+    stat: peak
+    rate_mm_yr: -387
+    rate_min_mm_yr: -387           # "peaks of VU of -35.0 to -38.7 cm/year in the central sector of Nezahualcoyotl"
+    rate_max_mm_yr: -350
+    period: "2017-2019"
+  - citation: "Cigna, F., & Tapete, D. (2021). Present-day land subsidence rates, surface faulting hazard and risk in Mexico City with 2014-2020 Sentinel-1 IW InSAR. Remote Sensing of Environment, 253, 112161. https://doi.org/10.1016/j.rse.2020.112161"
+    place: "Metropolitan Cathedral, Zocalo Square (p. 7)"
+    lon: -99.1332
+    lat: 19.4346
+    radius_km: 0.3
+    rate_mm_yr: -79                # middle of the reported -7.0 to -8.8 cm/year
+    rate_min_mm_yr: -88
+    rate_max_mm_yr: -70
+    period: "2017-2019"
+  - citation: "Cigna, F., & Tapete, D. (2021). Present-day land subsidence rates, surface faulting hazard and risk in Mexico City with 2014-2020 Sentinel-1 IW InSAR. Remote Sensing of Environment, 253, 112161. https://doi.org/10.1016/j.rse.2020.112161"
+    place: "GNSS station TNGF on volcanic rock, Coyoacan (stable ground, p. 10)"
+    lon: -99.1761                  # station position from the Nevada Geodetic Laboratory
+    lat: 19.3269
+    radius_km: 0.5
+    rate_mm_yr: 0.05               # "+0.005 cm/year in October 2017 to October 2019"
+    period: "Oct 2017 - Oct 2019"
+  - citation: "Chaussard, E., Wdowinski, S., Cabral-Cano, E., & Amelung, F. (2014). Land subsidence in central Mexico detected by ALOS InSAR time-series. Remote Sensing of Environment, 140, 94-106. https://doi.org/10.1016/j.rse.2013.08.038"
+    place: "Eastern Mexico City, Nezahualcoyotl (maximum, Table 2 p. 100 and p. 102; approximate centre)"
+    lon: -99.017
+    lat: 19.400
+    radius_km: 3
+    stat: peak
+    rate_mm_yr: -300               # "Linear vertical rates over 30 cm/yr are observed in Mexico City" (abstract)
+    period: "2007-2011"
+
 data_dir: data
 output_dir: outputs

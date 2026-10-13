@@ -72,6 +72,8 @@ published_values:
     rate_min_mm_yr: -200       # optional range from the paper
     rate_max_mm_yr: -100
     period: "2015-2020"
+    stat: median               # or "peak" when the paper says "up to" / "peaks of": compared with the
+                               # fastest-moving 2% of this run's pixels within radius_km
 published_maps:
   - path: data/published/dwr_vertical.tif
     label: "DWR InSAR vertical displacement"

@@ -55,3 +55,25 @@ def test_literature_detects_disagreement_and_outside(demo_cfg):
     assert set(checks[0].verdict.values()) == {"differs"}
     assert set(checks[1].verdict.values()) == {"outside area"}
     assert np.isnan(checks[1].insar["NISAR"])
+
+
+def test_published_peak_is_compared_with_the_fastest_pixels():
+    import numpy as np
+    from datetime import date
+    from pyproj import Transformer
+    from sarcompare.processing import RateMap
+    from sarcompare.readers.base import make_da
+    from sarcompare.validate import validate_literature
+
+    x = 480000 + np.arange(80) * 90.0
+    y = 2150000 + np.arange(80)[::-1] * 90.0
+    X, Y = np.meshgrid(x, y)
+    bowl = -0.30 * np.exp(-((X - x.mean()) ** 2 + (Y - y.mean()) ** 2) / (2 * 1500.0 ** 2))  # peak -300 mm/yr
+    da = make_da(bowl, x, y, "EPSG:32614", "rate")
+    rm = RateMap("NISAR", da, da * 0 + 0.7, da * 0 + 9, 9, 120, date(2025, 10, 1), date(2026, 2, 1), 38, 0.24,
+                 noise_rate=0.018)
+    lon, lat = Transformer.from_crs("EPSG:32614", "EPSG:4326", always_xy=True).transform(x.mean(), y.mean())
+    common = {"citation": "Test", "lon": lon, "lat": lat, "radius_km": 3, "rate_mm_yr": -300}
+    median, peak = validate_literature([common, {**common, "stat": "peak"}], [rm])
+    assert peak.insar["NISAR"] < -280 and peak.verdict["NISAR"] == "consistent"
+    assert median.insar["NISAR"] > -200 and median.verdict["NISAR"] == "differs"  # a median is not a peak

@@ -313,6 +313,9 @@ def literature_notes(checks, rates: list[RateMap]) -> list[Note]:
         pub = (f"{c.published_min:+.0f} to {c.published_max:+.0f}" if c.published_min is not None
                and c.published_max is not None else f"{c.published_mm_yr:+.0f}") + " mm/yr"
         where = f" at {c.place}" if c.place else f" at {c.lat:.4f}°N, {c.lon:.4f}°E"
+        if getattr(c, "stat", "median") == "peak":
+            pub = "a peak of " + pub
+            where += f" (compared with the fastest-moving 2% of this run's pixels within {c.radius_km:g} km)"
         when = f" for {c.period}" if c.period else ""
         ours = ", ".join(f"{s} {c.insar[s]:+.0f}" for s in sensors if math.isfinite(c.insar.get(s, float('nan'))))
         verdicts = {c.verdict.get(s) for s in sensors}
