@@ -1,0 +1,33 @@
+# Checks that external data sources (LiCSAR/COMET, CEDA, EGMS) answer and shows how their archives are laid out.
+# No login or token is used. Run it: Actions tab -> "Check data sources" -> Run workflow.
+
+name: Check data sources
+
+on:
+  workflow_dispatch:
+    inputs:
+      tracks:
+        description: "Sentinel-1 tracks (relative orbits) to list in LiCSAR, separated by spaces"
+        default: "28 35"
+      frames:
+        description: "Frames to inspect per track"
+        default: "4"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TRACKS: ${{ inputs.tracks }}
+      FRAMES: ${{ inputs.frames }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests
+      - name: Probe
+        run: |
+          case "$FRAMES" in ''|*[!0-9]*) echo "::error::frames must be a number"; exit 1;; esac
+          for t in $TRACKS; do case "$t" in *[!0-9]*) echo "::error::tracks must be numbers"; exit 1;; esac; done
+          python scripts/probe_sources.py --tracks $TRACKS --frames "$FRAMES"
