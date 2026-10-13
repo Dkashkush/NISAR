@@ -125,3 +125,62 @@ def test_results_page_with_one_satellite(demo_cfg, tmp_path):
     assert labels.get("Sentinel-1") == "No data" and "Area NISAR can measure" in labels
     text = " ".join(md.value for md in at.markdown) + " ".join(i.value for i in at.info)
     assert "only NISAR was used" in text and "nothing to compare it with" in text
+
+
+def _order_page(data_dir, out_dir, empty_dir):
+    from dataclasses import replace
+
+    import streamlit as st
+
+    from sarcompare.demo import demo_config
+    from sarcompare.gui import show_results
+    from sarcompare.pipeline import Pipeline
+
+    if "res" not in st.session_state:
+        cfg = replace(demo_config(data_dir, out_dir), s1_dir=empty_dir, name="order_test")
+        res = Pipeline(cfg, on_event=lambda e: None).run(download=False)
+        res.config.extra = {}  # behave like a real place
+        res.config.earthdata_token = "eyJ" + "x" * 400 + ".a.b"
+        st.session_state["res"] = res
+    show_results(st.session_state["res"])
+
+
+def test_order_sentinel1_from_the_results_page(demo_cfg, tmp_path, monkeypatch):
+    from datetime import date
+
+    from streamlit.testing.v1 import AppTest
+
+    from sarcompare import hyp3 as H
+    from sarcompare.notes import GOOD, Note
+    from sarcompare.pipeline import Pipeline
+
+    class Client:  # HyP3 account: credits and the price of a job
+        def user(self):
+            return {"remaining_credits": 9990.0}
+
+        def cost(self):
+            return 10.0
+
+    pair = H.PlannedPair("S1A_IW_SLC__1SDV_20251109T0", "S1A_IW_SLC__1SDV_20251121T0", date(2025, 11, 9),
+                         date(2025, 11, 21), "ASCENDING", 28, "Sentinel-1A", 0.97)
+    orders = []
+    monkeypatch.setattr(Pipeline, "hyp3_plan",
+                        lambda self: ([pair, pair], [Note("search", GOOD, "Planned on the NISAR dates.")]))
+    monkeypatch.setattr(Pipeline, "_hyp3", lambda self: Client())
+    monkeypatch.setattr(Pipeline, "hyp3_order", lambda self, pairs, validate_only=False: orders.append(pairs) or
+                        H.OrderResult([{}, {}], 0, 20.0, 9990.0,
+                                      [Note("search", GOOD, "2 Sentinel-1 interferogram(s) ordered.")]))
+    (tmp_path / "empty").mkdir()
+    at = AppTest.from_function(_order_page, default_timeout=300,
+                               args=(str(Path(demo_cfg.nisar_dir).parent), str(tmp_path / "out"),
+                                     str(tmp_path / "empty")))
+    at.run()
+    assert not at.exception, at.exception
+    assert not orders  # nothing is ordered without the user's click
+    next(b for b in at.button if b.label == "Find Sentinel-1 pairs to order").click().run()
+    assert not at.exception, at.exception
+    text = " ".join(md.value for md in at.markdown)
+    assert "2 pairs, about 20 credits" in text and "9,990 left" in text
+    next(b for b in at.button if b.label == "Order 2 Sentinel-1 interferograms").click().run()
+    assert not at.exception, at.exception
+    assert len(orders) == 1 and any("ordered" in s.value for s in at.success)

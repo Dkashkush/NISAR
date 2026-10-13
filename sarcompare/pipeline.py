@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -90,7 +91,53 @@ class Pipeline:
             return [self.cfg.s1_source]
         lon, lat = self.aoi.center
         north_america = -170 <= lon <= -50 and 14 <= lat <= 75  # OPERA DISP-S1 coverage
-        return ["ARIA_S1_GUNW"] + (["OPERA_DISP_S1"] if north_america else [])
+        # last: interferograms already ordered from HyP3 for this area (needs the Earthdata token)
+        return ["ARIA_S1_GUNW"] + (["OPERA_DISP_S1"] if north_america else []) + (["HYP3"] if self._token() else [])
+
+    def _token(self) -> str | None:
+        return self.cfg.earthdata_token or os.environ.get("EARTHDATA_TOKEN") or None
+
+    def _hyp3(self):
+        from .hyp3 import HyP3
+
+        if getattr(self, "_hyp3_client", None) is None:
+            self._hyp3_client = HyP3(self._token() or "")
+        return self._hyp3_client
+
+    def _hyp3_search(self) -> list[Product]:
+        """Finished HyP3 interferograms for this area; their status goes into the search notes."""
+        from .hyp3 import find_products
+
+        products, counts, notes = find_products(self._hyp3(), self.aoi)
+        self._hyp3_counts = counts
+        self.emit("search", f"Checked ASF HyP3 for Sentinel-1 interferograms ordered for this area "
+                            f"({len(products)} ready)", notes)
+        return products
+
+    def hyp3_plan(self):
+        """Sentinel-1 pairs to order from HyP3, matching the NISAR pairs' dates and flight directions."""
+        from .hyp3 import plan_pairs
+
+        cfg = self.cfg
+        combine = cfg.combine_directions and cfg.project_to_vertical
+        target: dict = {}
+        for prod in self.result.nisar_products:
+            key = (prod.flight_direction or "") if combine else ""
+            target.setdefault(key, set()).update(d for d in (prod.date1, prod.date2) if d)
+        target = {k: sorted(v) for k, v in target.items()}
+        directions = None
+        if cfg.s1_flight_direction:
+            directions = [cfg.s1_flight_direction]
+        elif not combine and self.result.nisar_products:
+            directions = sorted({prod.flight_direction for prod in self.result.nisar_products
+                                 if prod.flight_direction})[:1] or None
+        return plan_pairs(self.aoi, cfg.start, cfg.end, target=target, directions=directions,
+                          max_pairs=cfg.max_pairs, min_span=min(cfg.min_span_days, 6), max_span=cfg.max_span_days)
+
+    def hyp3_order(self, pairs, validate_only: bool = False):
+        from .hyp3 import order
+
+        return order(self._hyp3(), self.aoi, pairs, validate_only=validate_only)
 
     def search(self) -> tuple[list[Product], list[Product]]:
         cfg = self.cfg
@@ -114,9 +161,18 @@ class Pipeline:
         else:
             # Try each source in turn and keep the first that yields usable pairs (not merely any products).
             s1_all, s1, n2 = [], [], []
-            names = {"ARIA_S1_GUNW": "ARIA interferograms", "OPERA_DISP_S1": "OPERA DISP-S1"}
+            names = {"ARIA_S1_GUNW": "ARIA interferograms", "OPERA_DISP_S1": "OPERA DISP-S1",
+                     "HYP3": "interferograms ordered from ASF HyP3"}
             for source in self._s1_sources():
-                found = search_sentinel1(self.aoi, source, cfg.start, cfg.end, cfg.s1_flight_direction)
+                if source == "HYP3":
+                    try:
+                        found = self._hyp3_search()
+                    except Exception as e:  # HyP3 unreachable or token refused: Sentinel-1 is then left out
+                        notes.append(Note("search", WARN, f"Could not check ASF HyP3 for ordered interferograms "
+                                                          f"({type(e).__name__}: {e})."))
+                        continue
+                else:
+                    found = search_sentinel1(self.aoi, source, cfg.start, cfg.end, cfg.s1_flight_direction)
                 span = max(cfg.max_span_days, 730) if source == "OPERA_DISP_S1" else cfg.max_span_days
                 sel, sel_notes = select_directions(found, cfg.max_pairs, cfg.min_span_days, span,
                                                    cfg.s1_flight_direction, target=nisar_dates, combine=combine)
@@ -157,7 +213,7 @@ class Pipeline:
 
         todo = [p for p in self.result.nisar_products + self.result.s1_products if p.local_path is None]
         if self.cfg.stream_remote:
-            remote = [p for p in todo if is_streamable(p.url)]
+            remote = [p for p in todo if is_streamable(p.url) or _public(p)]
             todo = [p for p in todo if p not in remote]
             if remote:
                 full = sum(p.size_mb or 0 for p in remote) / 1000
@@ -177,7 +233,14 @@ class Pipeline:
         def prog(i, n, p):
             self.on_event(Event("download", f"{i + 1}/{n}: {p.name}", progress=i / n))
 
-        download_products(todo, self.cfg.data_dir, session=self._session(), progress=prog)
+        from .hyp3 import anonymous_session
+
+        public = [p for p in todo if _public(p)]
+        if public:  # HyP3 results are public links: never send the Earthdata token there
+            download_products(public, self.cfg.data_dir, session=anonymous_session(), progress=prog)
+        rest = [p for p in todo if not _public(p)]
+        if rest:
+            download_products(rest, self.cfg.data_dir, session=self._session(), progress=prog)
         self.emit("download", "Download complete", progress=1.0)
 
     def _read(self, p: Product):
@@ -187,10 +250,12 @@ class Pipeline:
                   nisar_sign=cfg.nisar_sign, s1_sign=cfg.s1_sign)
         if p.local_path is not None:
             return read_product(p, self.aoi, **kw)
+        from .hyp3 import anonymous_session
         from .remote import AccessError, UnavailableError, open_remote
 
+        session = anonymous_session() if _public(p) else self._session()  # the token stays with ASF/Earthdata
         try:
-            with open_remote(p.url, self._session()) as fobj:
+            with open_remote(p.url, session) as fobj:
                 return read_product(p, self.aoi, fileobj=fobj, **kw)
         except (ValueError, AccessError, UnavailableError):
             raise  # no overlap with the area, login refused, or file unavailable: downloading would not help
@@ -198,7 +263,7 @@ class Pipeline:
             self.emit("load", f"Remote read failed for {p.name}; downloading it instead",
                       [Note("load", INFO, f"Remote read of {p.name} failed ({type(e).__name__}: {e}); "
                                           "downloading the whole file instead.")])
-            download_products([p], cfg.data_dir, session=self._session())
+            download_products([p], cfg.data_dir, session=session)
             return read_product(p, self.aoi, **kw)
 
     def load_and_stack(self) -> None:
@@ -262,7 +327,8 @@ class Pipeline:
         if missing:
             present = next(iter(rates))
             self.emit("stack", f"Continuing with {present} alone (no usable {missing[0]} data here)",
-                      missing_sensor_notes(present, missing[0], self.aoi.center))
+                      missing_sensor_notes(present, missing[0], self.aoi.center,
+                                           getattr(self, "_hyp3_counts", None)))
 
     def _gnss_stations(self):
         """GNSS stations (stations, skipped, source), fetched once and shared by the reference and validation."""
@@ -478,6 +544,11 @@ class Pipeline:
         self.make_figures()
         self.write_outputs()
         return self.result
+
+
+def _public(p: Product) -> bool:
+    """Products on public links (HyP3 results), read without the Earthdata token."""
+    return p.product_type == "HYP3_INSAR" and bool(p.url) and p.local_path is None
 
 
 def _dedupe(notes: list[Note]) -> list[Note]:

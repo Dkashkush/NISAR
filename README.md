@@ -136,6 +136,7 @@ pip install -e ".[app,dev]"
 sarcompare gui                  # same as the launchers
 sarcompare demo                 # synthetic run: no account, no download
 sarcompare run my_area.yaml     # full workflow from a config file
+sarcompare hyp3 my_area.yaml    # plan Sentinel-1 interferograms to order from ASF HyP3 (--order submits)
 pytest                          # tests
 ```
 
@@ -163,9 +164,33 @@ sarcompare run    examples/mexico_city.yaml     # full workflow + report
 |---|---|---|
 | `ARIA_S1_GUNW` | Selected regions (mainly the US, plus other areas) | Ready-made interferograms |
 | `OPERA_DISP_S1` | North America | Ready-made displacement time series |
-| `LOCAL` | **Anywhere** | Order HyP3 InSAR jobs in [ASF Vertex](https://search.asf.alaska.edu) (free), then put the zips in `s1_dir`. Tick "include look vectors" |
+| `HYP3` | **Anywhere** | Interferograms ordered from ASF HyP3 for this area (see below); read remotely |
+| `LOCAL` | **Anywhere** | HyP3 zips (or other products) you downloaded yourself, in `s1_dir` |
 
-For areas outside ARIA/OPERA coverage (e.g. India), use HyP3 on-demand products with `s1_source: LOCAL`.
+`AUTO` (the default) tries ARIA, then OPERA in North America, then HyP3 orders for the area.
+
+### Places without ready-made Sentinel-1 (most of the world outside the US)
+
+Sentinel-1 images almost all land every 12 days, but ready-made interferograms exist only for some regions.
+Elsewhere:
+
+1. **The run continues with NISAR alone.** The ground-motion map, the moving areas, the GNSS tie and check and
+   the published-study check all work; what is missing is the confirmation by a second, independent satellite,
+   and the notes say so. (If NISAR is the missing one, the run continues with Sentinel-1 alone.)
+2. **Add Sentinel-1 by ordering it from ASF HyP3** (free, with the same Earthdata login). In the app, press
+   **Find Sentinel-1 pairs to order** below the results; on the command line, `sarcompare hyp3 my_area.yaml`
+   shows the plan and `--order` submits it. The app picks Sentinel-1 images (same track and satellite) on the
+   dates of the NISAR pairs, so the two satellites cover the same period, and orders `INSAR_GAMMA` jobs
+   (80 m, with look vectors and a water mask).
+3. **Run the same area again later.** Processing usually takes under an hour (longer when HyP3 is busy). The
+   finished interferograms are found from the area's coordinates and read remotely (only the layers needed).
+   HyP3 deletes results after 14 days.
+
+Good to know: each job uses free HyP3 processing credits (a monthly allowance; the app shows the cost and what
+is left before ordering). HyP3 jobs are **publicly visible** (job name = the area's coordinates, the images, and
+the Earthdata user name). The Earthdata token is sent only to the HyP3 API, never to the public storage the
+results are read from. In Europe, the free [EGMS](https://egms.land.copernicus.eu) Sentinel-1 maps are another
+independent check (see Validating against published data).
 
 ### Important settings (`Config` / YAML)
 
@@ -192,8 +217,10 @@ data on GitHub's servers. No local install is needed.
 1. Add your NASA Earthdata token as a repository secret named `EARTHDATA_TOKEN`
    (Settings → Secrets and variables → Actions).
 2. **Actions** → **Real-data test** → **Run workflow**, then choose a site: `mexico_city` (strong subsidence:
-   the clearest check of signs and sizes) or `central_valley` (many GNSS stations, slower and seasonal
-   motion), and optionally the Sentinel-1 product type.
+   the clearest check of signs and sizes), `central_valley` (many GNSS stations, slower and seasonal
+   motion) or `tehran` (no ready-made Sentinel-1: tests the NISAR-only run and HyP3 ordering), and
+   optionally the Sentinel-1 product type. The `hyp3` option `check` (default) plans Sentinel-1 pairs and shows
+   the HyP3 credits and jobs without ordering anything; `order` submits the planned pairs.
 3. Read the results on the run's **Summary** page (including a **Diagnostics** section with the GNSS station
    table and per-pair quality numbers) and download the `results-…` artifact (report, maps, GeoTIFFs and
    metrics).
@@ -298,6 +325,7 @@ sarcompare/
   aoi.py          AOI parsing (bbox / WKT / GeoJSON) and UTM grid selection
   search.py       ASF search, local-folder scanning, pair selection, time-overlap notes
   download.py     Earthdata authentication and downloads
+  hyp3.py         ordering Sentinel-1 interferograms from ASF HyP3 and finding the finished ones
   readers/        NISAR GUNW (HDF5), ARIA GUNW, OPERA DISP-S1, HyP3 GeoTIFF readers
   processing.py   common grid, rate stacking, noise estimate, reference point, vertical projection
   compare.py      statistics, difference map, hotspot detection
@@ -329,7 +357,6 @@ OpenSAR Explorer is designed to grow beyond ground motion. These modules are **i
 
 ### Improvements planned for the Ground Motion module
 
-- Ascending + descending decomposition into vertical and east–west motion.
 - Full SBAS time series (e.g. export to MintPy) instead of rate stacking, for seasonal signals.
 - Backscatter comparison: NISAR GCOV vs OPERA RTC-S1 for vegetation, flooding and soil moisture.
 - Tropospheric correction with weather-model products (e.g. OPERA TROPO) before comparing.

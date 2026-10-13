@@ -3,6 +3,7 @@
     sarcompare demo                         # synthetic end-to-end run, no credentials needed
     sarcompare search  config.yaml          # list what is available and what would be used
     sarcompare run     config.yaml          # search, download, compare, report
+    sarcompare hyp3    config.yaml [--order] # Sentinel-1 interferograms from ASF HyP3 where none are ready-made
 """
 
 from __future__ import annotations
@@ -45,6 +46,45 @@ def cmd_run(args) -> int:
     return 0
 
 
+def cmd_hyp3(args) -> int:
+    """Plan (and with --order, submit) Sentinel-1 interferograms on ASF HyP3 matching the NISAR pairs."""
+    from .hyp3 import find_products
+
+    p = Pipeline(_load(args))
+    p.search()
+    pairs, notes = p.hyp3_plan()
+    for n in notes:
+        print("  " + n.text)
+    print(f"\nSentinel-1 pairs to order from ASF HyP3 ({len(pairs)}):")
+    for q in pairs:
+        print(f"  {q.date1} → {q.date2} ({q.span_days} d) {q.direction.lower()} track {q.path} {q.platform}, "
+              f"covers {q.cover:.0%}\n    {q.reference}\n    {q.secondary}")
+    from .hyp3 import HyP3Error, access_problem
+
+    client = p._hyp3()
+    info = client.user()
+    credits = info.get("remaining_credits")  # the account's user name is not printed
+    try:
+        access_problem(info)
+    except HyP3Error as e:
+        print(f"\n{e}")
+    print(f"\nHyP3 credits left this month: {'no limit' if credits is None else f'{credits:,.0f}'}; "
+          f"one pair costs about {client.cost():.0f}.")
+    _, counts, status_notes = find_products(client, p.aoi)
+    for n in status_notes:
+        print("  " + n.text)
+    if args.order or args.check_only:
+        res = p.hyp3_order(pairs, validate_only=args.check_only)
+        for n in res.notes:
+            print("  " + n.text)
+        if res.skipped:
+            print(f"  {res.skipped} pair(s) were already ordered and were not sent again.")
+    elif pairs:
+        print("\nNothing was ordered. Add --order to submit these jobs (it uses free HyP3 credits; jobs are "
+              "publicly visible). Then run the same config again later: finished results are found automatically.")
+    return 0
+
+
 def cmd_demo(args) -> int:
     from .demo import demo_config
 
@@ -76,7 +116,7 @@ def main(argv=None) -> int:
     s = sub.add_parser("search", help="search ASF and show the pairs that would be used")
     s.add_argument("config")
     s.add_argument("--max-pairs", type=int, help="image pairs per satellite (overrides the config)")
-    s.add_argument("--s1-source", choices=["AUTO", "ARIA_S1_GUNW", "OPERA_DISP_S1"], help="Sentinel-1 product type")
+    s.add_argument("--s1-source", choices=["AUTO", "ARIA_S1_GUNW", "OPERA_DISP_S1", "HYP3"], help="Sentinel-1 product type")
     s.set_defaults(func=cmd_search)
     r = sub.add_parser("run", help="full workflow: search, download, compare, report")
     r.add_argument("config")
@@ -84,8 +124,15 @@ def main(argv=None) -> int:
     r.add_argument("--no-download", action="store_true", help="only use files already present locally")
     r.add_argument("--max-pairs", type=int, help="image pairs per satellite (overrides the config)")
     r.add_argument("--data-dir", help="folder for downloaded files (overrides the config)")
-    r.add_argument("--s1-source", choices=["AUTO", "ARIA_S1_GUNW", "OPERA_DISP_S1"], help="Sentinel-1 product type")
+    r.add_argument("--s1-source", choices=["AUTO", "ARIA_S1_GUNW", "OPERA_DISP_S1", "HYP3"], help="Sentinel-1 product type")
     r.set_defaults(func=cmd_run)
+    h = sub.add_parser("hyp3", help="order Sentinel-1 interferograms from ASF HyP3 for the NISAR dates")
+    h.add_argument("config")
+    h.add_argument("--max-pairs", type=int, help="image pairs per flight direction (overrides the config)")
+    h.add_argument("--order", action="store_true", help="submit the planned jobs (uses HyP3 credits)")
+    h.add_argument("--check-only", action="store_true",
+                   help="ask HyP3 to check the jobs without submitting them (only if HyP3 offers this)")
+    h.set_defaults(func=cmd_hyp3)
     d = sub.add_parser("demo", help="run on synthetic data (no account or download needed)")
     d.add_argument("--data-dir", default="data/demo")
     d.add_argument("--output-dir", default="outputs")

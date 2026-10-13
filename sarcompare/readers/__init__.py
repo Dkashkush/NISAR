@@ -28,5 +28,5 @@ def read_product(product: Product, aoi: AOI, *, nisar_polarization=None, nisar_a
     if t == "DISP-S1":
         return read_opera_disp(src, aoi, sign=s1_sign, name=name)
     if t == "HYP3_INSAR":
-        return read_hyp3_insar(product.local_path, aoi, sign=s1_sign)
+        return read_hyp3_insar(src, aoi, sign=s1_sign)
     raise ValueError(f"No reader for product type {t!r}")

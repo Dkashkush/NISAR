@@ -1,0 +1,26 @@
+# Tehran plain, Iran: fast aquifer-compaction subsidence south-west of the city.
+# Real-data example for a place WITHOUT ready-made Sentinel-1 interferograms (no ARIA or OPERA products here):
+# the run measures ground motion with NISAR alone, and `sarcompare hyp3 examples/tehran.yaml --order` orders
+# matching Sentinel-1 interferograms from ASF HyP3. Run the same config again once they are processed.
+# Needs a free NASA Earthdata login (see README).
+name: tehran
+aoi: [51.10, 35.45, 51.45, 35.72]   # west, south, east, north (degrees)
+start: 2025-10-01
+end: null                        # null = up to today
+
+nisar_source: ASF
+nisar_flight_direction: null
+nisar_apply_ionosphere: true
+
+s1_source: AUTO                  # tries ARIA, then interferograms already ordered from HyP3 for this area
+s1_flight_direction: null
+
+max_pairs: 8
+min_span_days: 12
+max_span_days: 96
+coherence_threshold: 0.35
+resolution_m: 90
+project_to_vertical: true
+reference_lonlat: null
+
+gnss: NGL                        # Nevada Geodetic Laboratory stations inside the area, if any have recent data

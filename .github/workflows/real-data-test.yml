@@ -13,7 +13,7 @@ on:
       site:
         description: "Test site"
         type: choice
-        options: [central_valley, mexico_city]
+        options: [central_valley, mexico_city, tehran]
         default: central_valley
       max_pairs:
         description: "Image pairs per satellite (more = longer period, less noise)"
@@ -23,8 +23,13 @@ on:
       s1_source:
         description: "Sentinel-1 product type (AUTO = as in the site's config)"
         type: choice
-        options: [AUTO, ARIA_S1_GUNW, OPERA_DISP_S1]
+        options: [AUTO, ARIA_S1_GUNW, OPERA_DISP_S1, HYP3]
         default: AUTO
+      hyp3:
+        description: "ASF HyP3 Sentinel-1 orders: check = plan pairs and show credits/jobs (nothing ordered); order = submit them (uses free HyP3 credits; jobs are public)"
+        type: choice
+        options: [check, order, skip]
+        default: check
 
 concurrency:
   group: real-data-test
@@ -39,6 +44,7 @@ jobs:
       SITE: ${{ inputs.site }}
       MAX_PAIRS: ${{ inputs.max_pairs }}
       S1_SOURCE: ${{ inputs.s1_source }}
+      HYP3: ${{ inputs.hyp3 }}
     steps:
       - name: Check the Earthdata token
         run: |
@@ -46,8 +52,9 @@ jobs:
             echo "::error::EARTHDATA_TOKEN secret is not set. See the setup notes at the top of .github/workflows/real-data-test.yml."
             exit 1
           fi
-          case "$SITE" in central_valley|mexico_city) ;; *) echo "::error::unknown site $SITE"; exit 1;; esac
-          case "$S1_SOURCE" in AUTO|ARIA_S1_GUNW|OPERA_DISP_S1) ;; *) echo "::error::unknown s1_source"; exit 1;; esac
+          case "$SITE" in central_valley|mexico_city|tehran) ;; *) echo "::error::unknown site $SITE"; exit 1;; esac
+          case "$S1_SOURCE" in AUTO|ARIA_S1_GUNW|OPERA_DISP_S1|HYP3) ;; *) echo "::error::unknown s1_source"; exit 1;; esac
+          case "$HYP3" in check|order|skip) ;; *) echo "::error::unknown hyp3 option"; exit 1;; esac
 
       - uses: actions/checkout@v4
 
@@ -125,22 +132,31 @@ jobs:
               c = m["comparison"]
               def f(v, nd=1):
                   return "n/a" if v is None or v != v else f"{v:.{nd}f}"
+              def pct(v):
+                  return "n/a" if v is None or v != v else f"{v:.0%}"
+              # columns: the satellites that had data (one of them can be missing for an area)
+              cols = [(k, label) for k, label in (("nisar", "NISAR"), ("sentinel1", "Sentinel-1")) if m.get(k)]
+              ab = {cols[0][0]: "a", **({cols[1][0]: "b"} if len(cols) > 1 else {})}
               out.append(f"## {site}: real-data results\n")
-              out.append("| | NISAR | Sentinel-1 |\n|---|---|---|")
-              out.append(f"| Pairs | {m['nisar']['n_pairs']} | {m['sentinel1']['n_pairs']} |")
-              out.append(f"| Period | {m['nisar']['date_start']} → {m['nisar']['date_end']} | "
-                         f"{m['sentinel1']['date_start']} → {m['sentinel1']['date_end']} |")
-              out.append(f"| Area covered | {c['coverage_a']:.0%} | {c['coverage_b']:.0%} |")
-              out.append(f"| Mean coherence | {f(c['coh_mean_a'], 2)} | {f(c['coh_mean_b'], 2)} |")
-              out.append(f"| Rate noise (mm/yr) | {f(c['noise_a_mm_yr'])} | {f(c['noise_b_mm_yr'])} |")
+              missing = [label for k, label in (("nisar", "NISAR"), ("sentinel1", "Sentinel-1")) if not m.get(k)]
+              if missing:
+                  out.append(f"**{missing[0]} had no usable data here; the run used {cols[0][1]} alone.**\n")
+              out.append("| | " + " | ".join(label for _, label in cols) + " |\n|---|" + "---|" * len(cols))
+              out.append("| Pairs | " + " | ".join(str(m[k]["n_pairs"]) for k, _ in cols) + " |")
+              out.append("| Period | " + " | ".join(f"{m[k]['date_start']} → {m[k]['date_end']}" for k, _ in cols) + " |")
+              out.append("| Area covered | " + " | ".join(pct(c[f"coverage_{ab[k]}"]) for k, _ in cols) + " |")
+              out.append("| Mean coherence | " + " | ".join(f(c[f"coh_mean_{ab[k]}"], 2) for k, _ in cols) + " |")
+              out.append("| Rate noise (mm/yr) | " + " | ".join(f(c[f"noise_{ab[k]}_mm_yr"]) for k, _ in cols) + " |")
               g = (m.get("validation") or {}).get("gnss")
               if g:
                   s = g["stats"]
-                  out.append(f"| GNSS RMSE (mm/yr) | {f(s.get('NISAR', {}).get('rmse_mm_yr'))} "
-                             f"(n={s.get('NISAR', {}).get('n')}) | {f(s.get('Sentinel-1', {}).get('rmse_mm_yr'))} "
-                             f"(n={s.get('Sentinel-1', {}).get('n')}) |")
-              out.append(f"\n**Agreement between satellites:** r = {f(c['pearson_r'], 2)}, slope {f(c['slope'], 2)}, "
-                         f"RMS difference {f(c['rmsd_mm_yr'])} mm/yr over {c['n_joint']} pixels.\n")
+                  out.append("| GNSS RMSE (mm/yr) | " + " | ".join(
+                      f"{f(s.get(label, {}).get('rmse_mm_yr'))} (n={s.get(label, {}).get('n')})" for _, label in cols)
+                      + " |")
+              if len(cols) > 1:
+                  out.append(f"\n**Agreement between satellites:** r = {f(c['pearson_r'], 2)}, slope "
+                             f"{f(c['slope'], 2)}, RMS difference {f(c['rmsd_mm_yr'])} mm/yr over {c['n_joint']} "
+                             "pixels.\n")
               out.append("### Interpretation notes\n")
               icon = {"good": "✅", "warn": "⚠️"}
               for n in m["notes"]:
@@ -156,6 +172,19 @@ jobs:
         run: |
           python scripts/diagnose_run.py "outputs/$SITE" | tee diagnosis.txt
           { echo "<details><summary>Diagnostics</summary>"; echo; echo '```'; cat diagnosis.txt; echo '```'; echo "</details>"; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 5. Sentinel-1 from ASF HyP3 (plan; order only if chosen)
+        if: always() && env.HYP3 != 'skip'
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          if [ "$HYP3" = order ]; then extra=--order; else extra=; fi
+          sarcompare --debug hyp3 "examples/$SITE.yaml" --max-pairs 4 $extra 2>&1 | tee hyp3.txt
+          if [ "$HYP3" = check ]; then
+            # check-only is sent only if HyP3's own API description offers it; otherwise nothing is sent
+            sarcompare hyp3 "examples/$SITE.yaml" --max-pairs 4 --check-only 2>&1 | tail -n 3 | tee -a hyp3.txt || true
+          fi
+          { echo "<details><summary>Sentinel-1 from ASF HyP3 ($HYP3)</summary>"; echo; echo '```'; cat hyp3.txt; echo '```'; echo "</details>"; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the results
         if: always()

@@ -185,21 +185,49 @@ def _open_tif(folder: Path, suffix: str):
     return rioxarray.open_rasterio(files[0], masked=True).squeeze("band", drop=True)
 
 
-def read_hyp3_insar(path: str | Path, aoi: AOI, sign: float | None = None) -> Interferogram:
-    folder = _hyp3_folder(Path(path))
-    notes: list[Note] = []
-    date1, date2 = _dates(folder.name)
-    unw = _open_tif(folder, "unw_phase")
+def _zip_layers(fileobj):
+    """(product name, layer opener) for a HyP3 zip opened remotely: only the layers asked for are transferred."""
+    import io
+
+    z = zipfile.ZipFile(fileobj)
+    members = [m for m in z.namelist() if m.lower().endswith(".tif")]
+    unw = next((m for m in members if m.endswith("_unw_phase.tif")), None)
     if unw is None:
-        raise ValueError(f"HyP3 product {folder} has no *_unw_phase.tif")
+        raise ValueError("HyP3 zip has no *_unw_phase.tif")
+    name = unw.rsplit("/", 2)[-2] if "/" in unw else unw[: -len("_unw_phase.tif")]
+
+    def layer(suffix: str):
+        m = next((m for m in members if m.endswith(f"_{suffix}.tif")), None)
+        if m is None:
+            return None
+        return rioxarray.open_rasterio(io.BytesIO(z.read(m)), masked=True).squeeze("band", drop=True)
+
+    return name, layer
+
+
+def read_hyp3_insar(path, aoi: AOI, sign: float | None = None) -> Interferogram:
+    """HyP3 InSAR product: a folder, a zip file, or a remote zip opened as a file object."""
+    if hasattr(path, "read"):
+        name, layer = _zip_layers(path)
+    else:
+        folder = _hyp3_folder(Path(path))
+        name = folder.name
+
+        def layer(suffix: str):
+            return _open_tif(folder, suffix)
+    notes: list[Note] = []
+    date1, date2 = _dates(name)
+    unw = layer("unw_phase")
+    if unw is None:
+        raise ValueError(f"HyP3 product {name} has no *_unw_phase.tif")
     w, s_, e, n = aoi.bounds_in(unw.rio.crs)
     pad_x, pad_y = (e - w) * 0.05, (n - s_) * 0.05
     clip = dict(minx=w - pad_x, miny=s_ - pad_y, maxx=e + pad_x, maxy=n + pad_y)
     unw = unw.rio.clip_box(**clip)
-    corr = _open_tif(folder, "corr")
+    corr = layer("corr")
     coh = corr.rio.clip_box(**clip).values if corr is not None else np.full(unw.shape, np.nan)
     nodata = coh == 0  # HyP3 writes 0 outside the valid footprint
-    los_da = _open_tif(folder, "los_disp")
+    los_da = layer("los_disp")
     if los_da is not None and sign is None:
         los = los_da.rio.clip_box(**clip).values  # already metres, positive toward the sensor
     else:
@@ -207,7 +235,7 @@ def read_hyp3_insar(path: str | Path, aoi: AOI, sign: float | None = None) -> In
         los = sgn * unw.values * WAVELENGTH_S1_C / (4 * np.pi)
     los = np.where(nodata, np.nan, los)
     coh = np.where(nodata, np.nan, coh)
-    theta = _open_tif(folder, "lv_theta")
+    theta = layer("lv_theta")
     th = theta.rio.clip_box(**clip).values.astype("float64") if theta is not None else None
     if th is not None:
         th[th == 0] = np.nan  # 0 = no data (same handling as MintPy's HyP3 loader)
@@ -220,7 +248,7 @@ def read_hyp3_insar(path: str | Path, aoi: AOI, sign: float | None = None) -> In
                                         "Request 'include_look_vectors' when ordering."))
     x, y = unw.x.values, unw.y.values
     return Interferogram(
-        sensor=SENTINEL1, product_type="HYP3_INSAR", name=folder.name, date1=date1, date2=date2,
+        sensor=SENTINEL1, product_type="HYP3_INSAR", name=name, date1=date1, date2=date2,
         los=make_da(los, x, y, unw.rio.crs, "los"), coherence=make_da(coh, x, y, unw.rio.crs, "coherence"),
         wavelength=WAVELENGTH_S1_C, incidence_deg=inc, notes=notes,
     )

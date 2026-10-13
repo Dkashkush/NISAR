@@ -71,21 +71,30 @@ def _in_europe(lon: float, lat: float) -> bool:
     return -25 <= lon <= 45 and 34 <= lat <= 72  # roughly the area covered by EGMS
 
 
-def missing_sensor_notes(present: str, missing: str, center: tuple[float, float] | None = None) -> list[Note]:
-    """Why one satellite is missing from the run, what is lost, and how to add it."""
+def missing_sensor_notes(present: str, missing: str, center: tuple[float, float] | None = None,
+                         hyp3_counts: dict | None = None) -> list[Note]:
+    """Why one satellite is missing from the run, what is lost, and how to add it.
+
+    ``hyp3_counts``: status of the HyP3 jobs already ordered for the area (status -> number), if checked."""
     notes: list[Note] = []
     add = lambda lvl, text: notes.append(Note("compare", lvl, text))  # noqa: E731
     add(WARN, f"No usable {missing} data were found for this area and period, so ground motion is measured with "
               f"{present} alone. The rate map, the moving areas and the checks against GNSS and published studies "
               f"all still work. What is lost is the second, independent satellite: a moving area can no longer be "
               "confirmed by both, so check it against GNSS, published studies or field evidence.")
-    if missing == "Sentinel-1":
+    busy = sum((hyp3_counts or {}).get(k, 0) for k in ("PENDING", "RUNNING"))
+    if missing == "Sentinel-1" and busy:
+        add(INFO, f"{busy} Sentinel-1 interferogram(s) ordered from ASF HyP3 for this area are still processing. "
+                  "Run this area again when they are done (usually within an hour or two): they are then used "
+                  "automatically.")
+    elif missing == "Sentinel-1":
         add(INFO, "Why: Sentinel-1 images almost all land every 12 days, but ready-made interferograms are only "
                   "published for some places (ARIA for selected regions, OPERA DISP-S1 for North America). For "
-                  "anywhere else, ASF's free HyP3 service makes them on request from the raw Sentinel-1 images: "
-                  "order them for the same dates in ASF Vertex (search.asf.data.nasa.gov) with your Earthdata "
-                  "login, wait for them to finish (usually under an hour), then run again with "
-                  "\"Use files I already have\" (s1_source: LOCAL).")
+                  "anywhere else, ASF's free HyP3 service makes them on request from the raw images. Use "
+                  "\"Order Sentinel-1 from ASF HyP3\" below the results (or sarcompare hyp3 config.yaml --order): "
+                  "the app picks Sentinel-1 pairs on the NISAR dates and orders them with your Earthdata login. "
+                  "Processing usually takes under an hour; then run the same area again and they are used "
+                  "automatically (HyP3 keeps them for 14 days).")
         if center is not None and _in_europe(*center):
             add(INFO, "This area is in Europe, where the European Ground Motion Service (EGMS) maps Sentinel-1 "
                       "ground motion everywhere. Download the EGMS vertical tile for this area (see Checks) and "

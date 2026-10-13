@@ -325,7 +325,9 @@ def advanced_settings():
     with st.expander("⚙️ Advanced settings (most people can skip this)"):
         c1, c2, c3 = st.columns(3)
         s1 = c1.selectbox("Sentinel-1 product", ["Automatic (recommended)", "ARIA interferograms",
-                                                 "OPERA DISP-S1 (North America)"])
+                                                 "OPERA DISP-S1 (North America)", "Ordered from ASF HyP3"],
+                          help="Automatic tries the ready-made products, then interferograms you ordered from "
+                               "ASF HyP3 for this area.")
         direction = c1.selectbox("Satellite pass", ["Any", "ASCENDING", "DESCENDING"])
         coh = c2.slider("Data quality threshold (coherence)", 0.1, 0.8, 0.35, 0.05,
                         help="Pixels whose radar signal is less stable than this are left out.")
@@ -339,7 +341,8 @@ def advanced_settings():
                                      "twice as many files.")
         iono = c3.checkbox("Correct NISAR for the ionosphere", True)
         ref = st.text_input("Stable reference point 'longitude, latitude' (blank = automatic)", "")
-    s1_code = {"Automatic (recommended)": "AUTO", "ARIA interferograms": "ARIA_S1_GUNW"}.get(s1, "OPERA_DISP_S1")
+    s1_code = {"Automatic (recommended)": "AUTO", "ARIA interferograms": "ARIA_S1_GUNW",
+               "Ordered from ASF HyP3": "HYP3"}.get(s1, "OPERA_DISP_S1")
     return dict(s1=s1_code, direction=None if direction == "Any" else direction, coh=coh, max_pairs=max_pairs,
                 res=res, vertical=vertical, iono=iono, ref=ref, both_dirs=both_dirs)
 
@@ -381,6 +384,8 @@ def friendly_error(e: Exception) -> str:
     low = msg.lower()
     if name == "AccessError":  # already a plain-language reason with the fix
         return f"Could not get the data files: {msg}"
+    if name == "HyP3Error":  # plain-language reason from the HyP3 order/status code
+        return msg
     if "credential" in low or ("token" in low and ("invalid" in low or "unauthor" in low)):
         return "Your Earthdata token was not accepted. Check that you pasted all of it, or generate a new one."
     if name in ("ConnectionError", "ProxyError", "Timeout", "ConnectTimeout") or "cmr.earthdata" in low:
@@ -430,6 +435,71 @@ def run_pipeline(cfg: Config, search_only: bool):
     return result
 
 
+def offer_hyp3(res):
+    """Plan and order Sentinel-1 interferograms from ASF HyP3 for an area without ready-made ones."""
+    from sarcompare.pipeline import Pipeline as _Pipeline
+
+    cfg = res.config
+    with st.container(border=True):
+        st.markdown("#### Add Sentinel-1: order it from ASF HyP3")
+        st.markdown("No ready-made Sentinel-1 interferograms cover this area and period. ASF's free **HyP3** "
+                    "service can make them from the raw Sentinel-1 images, on the same dates as the NISAR pairs, "
+                    "with your Earthdata login. Processing usually takes under an hour. Then run this area again: "
+                    "the finished interferograms are found and used automatically. HyP3 keeps them for 14 days.")
+        st.caption("This uses free HyP3 processing credits from your Earthdata account (a monthly allowance). "
+                   "HyP3 jobs are publicly visible: the job name (this area's coordinates), the images and your "
+                   "Earthdata user name.")
+        if not (cfg.earthdata_token or os.environ.get("EARTHDATA_TOKEN")):
+            st.info("An Earthdata token is needed to order. Paste yours in the token step and run again.")
+            return
+        if st.button("Find Sentinel-1 pairs to order", key="hyp3_plan_btn"):
+            try:
+                p = _Pipeline(cfg, on_event=lambda e: None)
+                p.result.nisar_products = list(res.nisar_products)
+                with st.spinner("Searching Sentinel-1 images and checking your HyP3 credits…"):
+                    pairs, notes = p.hyp3_plan()
+                    client = p._hyp3()
+                    info = client.user()
+                    from sarcompare.hyp3 import access_problem
+
+                    access_problem(info)  # new HyP3 users apply once (free); explained before anything else
+                    credits = info.get("remaining_credits")
+                    cost = client.cost()
+                st.session_state["hyp3_plan"] = (pairs, [n.text for n in notes], credits, cost)
+            except Exception as e:
+                st.error(friendly_error(e))
+        plan = st.session_state.get("hyp3_plan")
+        if not plan:
+            return
+        pairs, texts, credits, cost = plan
+        for t in texts:
+            st.markdown(f"ℹ️ {t}")
+        if not pairs:
+            st.warning("No suitable Sentinel-1 image pairs were found for this area and period.")
+            return
+        st.dataframe([{"From": str(q.date1), "To": str(q.date2), "Days": q.span_days,
+                       "Direction": q.direction.lower(), "Track": q.path, "Satellite": q.platform,
+                       "Area covered": f"{q.cover:.0%}"} for q in pairs], hide_index=True, width="stretch")
+        left = "no limit" if credits is None else f"{credits:,.0f} left this month"
+        st.markdown(f"**{len(pairs)} pairs, about {cost * len(pairs):,.0f} credits** ({left}).")
+        done = st.session_state.get("hyp3_ordered")
+        if done:
+            st.success(done)
+            return
+        if st.button(f"Order {len(pairs)} Sentinel-1 interferograms", type="primary", key="hyp3_order_btn"):
+            try:
+                p = _Pipeline(cfg, on_event=lambda e: None)
+                with st.spinner("Sending the order to ASF HyP3…"):
+                    out = p.hyp3_order(pairs)
+                msg = " ".join(n.text for n in out.notes)
+                if out.skipped:
+                    msg += f" {out.skipped} pair(s) were already ordered and were not sent again."
+                st.session_state["hyp3_ordered"] = msg
+                st.success(msg)
+            except Exception as e:
+                st.error(friendly_error(e))
+
+
 def show_results(res):
     from sarcompare.interpret import plain_summary
     from sarcompare.maps import results_map
@@ -456,6 +526,8 @@ def show_results(res):
         m[2].metric("Noise (1σ)", f"{c.noise_a_mm_yr:.0f} mm/yr" if math.isfinite(c.noise_a_mm_yr) else "n/a",
                     help="Movements smaller than about twice this cannot be told apart from noise.")
         m[3].metric("Moving areas found", len(c.hotspots))
+        if res.s1_rate is None and not res.config.extra.get("synthetic"):
+            offer_hyp3(res)
     else:
         m[0].metric("Area NISAR can measure", f"{c.coverage_a:.0%}")
         m[1].metric("Area Sentinel-1 can measure", f"{c.coverage_b:.0%}")
@@ -619,6 +691,8 @@ def page_explore():
                 result = run_pipeline(cfg, search_only=check)
                 if result is not None:
                     st.session_state["result"] = result
+                    st.session_state.pop("hyp3_plan", None)  # an order offer belongs to one result
+                    st.session_state.pop("hyp3_ordered", None)
     if st.session_state.get("result") is not None:
         show_results(st.session_state["result"])
 
@@ -691,9 +765,15 @@ def page_help():
     faq = {
         "Why was no data found?": (
             "NISAR started producing data in late 2025, so choose dates after that. Ready-made Sentinel-1 "
-            "interferograms exist for parts of the world (ARIA, mainly the USA) and for North America (OPERA). "
-            "For other places, order free 'HyP3 InSAR' jobs on [ASF Vertex](https://search.asf.alaska.edu), "
-            "download the zip files, and use **Use files I already have** in the desktop version."),
+            "interferograms exist for parts of the world (ARIA, mainly the USA) and for North America (OPERA)."),
+        "There is no Sentinel-1 data for my area. What happens?": (
+            "The analysis continues with NISAR alone: the ground-motion map, the moving areas and the checks "
+            "against GNSS and published studies all still work; only the second-satellite confirmation is "
+            "missing. To add Sentinel-1, press **Find Sentinel-1 pairs to order** below the results: the app "
+            "picks Sentinel-1 images on the same dates as the NISAR pairs and orders the interferograms from ASF's "
+            "free HyP3 service with your Earthdata login (it uses free monthly processing credits; HyP3 jobs are "
+            "publicly visible). Processing usually takes under an hour. Then run the same area again: the "
+            "finished interferograms are found and used automatically. HyP3 keeps them for 14 days."),
         "Is my Earthdata token safe?": (
             "It is used only for your downloads in your own session and is never written to disk or shown to "
             "other visitors. You can delete a token any time in your Earthdata profile."),
