@@ -42,3 +42,5 @@ for the closest match.
   `SARCOMPARE_MAX_PAIRS` in the app's **Settings → Secrets**. Big studies are better run on your own computer
   or with the Real-data test workflow on GitHub.
 - **Logs:** if the build or the app fails, open **Manage app** (bottom right of the app) to see the log.
+- **`packages.txt` must list only package names**, one per line: Streamlit passes every word in it to the
+  system installer, comments included. It holds `libexpat1`, which rasterio needs.

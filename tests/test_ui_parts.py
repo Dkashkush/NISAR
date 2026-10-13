@@ -43,3 +43,11 @@ def test_auto_sentinel1_source_order():
     assert na._s1_sources() == ["ARIA_S1_GUNW", "OPERA_DISP_S1"]
     india = Pipeline(Config(aoi=[77.0, 28.4, 77.2, 28.6]), on_event=lambda e: None)
     assert india._s1_sources() == ["ARIA_S1_GUNW"]
+
+
+def test_packages_txt_has_only_package_names():
+    """Streamlit Community Cloud passes every word of packages.txt to apt-get, comments included."""
+    from pathlib import Path
+
+    lines = [l.strip() for l in (Path(__file__).parents[1] / "packages.txt").read_text().splitlines() if l.strip()]
+    assert lines and all(" " not in l and not l.startswith("#") for l in lines)
