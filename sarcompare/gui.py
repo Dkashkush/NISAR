@@ -404,10 +404,14 @@ def show_results(res):
             col, txt = st.columns([1, 1], gap="large")
             col.image(res.figures["gnss"]["light"], use_container_width=True)
             show_notes(vnotes, txt)
+            from .validate import station_rate
+
             st.dataframe([{"Station": s.site, "Latitude": round(s.lat, 4), "Longitude": round(s.lon, 4),
-                           "GNSS vertical (mm/yr)": round(s.up_mm_yr, 1), "±": round(s.up_sigma_mm_yr, 1),
                            "NISAR (mm/yr)": round(s.insar.get("NISAR", float("nan")), 1),
-                           "Sentinel-1 (mm/yr)": round(s.insar.get("Sentinel-1", float("nan")), 1)}
+                           "GNSS, NISAR dates": round(station_rate(s, "NISAR"), 1),
+                           "Sentinel-1 (mm/yr)": round(s.insar.get("Sentinel-1", float("nan")), 1),
+                           "GNSS, Sentinel-1 dates": round(station_rate(s, "Sentinel-1"), 1),
+                           "GNSS long-term (mm/yr)": round(s.up_mm_yr, 1)}
                           for s in res.gnss.stations], hide_index=True, use_container_width=True)
         else:
             show_notes(vnotes)

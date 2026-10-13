@@ -67,12 +67,16 @@ def main(run_dir: str) -> int:
     g = (m.get("validation") or {}).get("gnss")
     if g:
         print(f"\nGNSS ({g['source']}): absolute vertical rate vs InSAR at the station (mm/yr)")
-        print("  site      lon       lat     GNSS  ±sig   NISAR    S1   period / note")
+        print("  site      lon       lat   long-term  NISAR (GNSS same dates)   S1 (GNSS same dates)   period / note")
         for st in g["stations"]:
-            ins = st.get("insar", {})
-            print(f"  {st['site']:<6} {st['lon']:9.4f} {st['lat']:8.4f} {_f(st['up_mm_yr']):>6} "
-                  f"{st['up_sigma_mm_yr']:5.1f} {_f(ins.get('NISAR')):>7} {_f(ins.get('Sentinel-1')):>6}   "
-                  f"{st.get('period', '')} {st.get('note', '')}")
+            ins, win = st.get("insar", {}), st.get("window", {})
+
+            def pair(sn):
+                w = win.get(sn)
+                gw = f"{_f(w['up_mm_yr'])}±{w['up_sigma_mm_yr']:.0f}" if w else "  n/a"
+                return f"{_f(ins.get(sn)):>6} ({gw:>9})"
+            print(f"  {st['site']:<6} {st['lon']:9.4f} {st['lat']:8.4f} {_f(st['up_mm_yr']):>6}±{st['up_sigma_mm_yr']:<4.1f}"
+                  f"  {pair('NISAR')}        {pair('Sentinel-1')}   {st.get('period', '')} {st.get('note', '')}")
         for k, s in g["stats"].items():
             print(f"  {k}: n={s['n']} offset={_f(s['offset_mm_yr'], 1)} rmse={_f(s['rmse_mm_yr'], 1)}")
         for sk in g.get("skipped", []):

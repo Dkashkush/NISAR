@@ -89,3 +89,15 @@ def test_independent_pieces_counts_gapless_chains():
     chain = [NS(date1=a, date2=b) for a, b in zip(d, d[1:])]
     assert independent_pieces(chain) == 1
     assert independent_pieces(chain[:2] + chain[3:]) == 2
+
+
+def test_window_rate_is_end_minus_start():
+    d0 = date(2026, 1, 1)
+    dates = np.array([d0 + timedelta(days=k) for k in range(400)])
+    t = np.arange(400) / 365.25
+    u = -0.10 * t + 0.03 * np.sin(2 * np.pi * t)  # trend plus a strong seasonal cycle
+    start, end = dates[100], dates[200]
+    rate, sigma = V.window_rate(dates, u, start, end)
+    expected = (u[200] - u[100]) / (100 / 365.25)
+    assert abs(rate - expected) < 0.002 and sigma < 0.01
+    assert V.window_rate(dates[:50], u[:50], start, end) is None

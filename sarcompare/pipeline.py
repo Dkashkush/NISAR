@@ -230,7 +230,8 @@ class Pipeline:
                 stations, skipped = V.ngl_stations(
                     self.aoi, start, end, cfg.gnss_dir, cfg.gnss_max_stations,
                     progress=lambda i, n, site: self.on_event(Event("validate", f"GNSS {i + 1}/{n}: {site}",
-                                                                    progress=i / max(n, 1))))
+                                                                    progress=i / max(n, 1))),
+                    windows={rm.sensor: (rm.date_start, rm.date_end) for rm in rates})
                 self._gnss_cache = (stations, skipped, "Nevada Geodetic Laboratory, IGS20")
             else:
                 self._gnss_cache = (V.csv_stations(cfg.gnss), [], f"table {Path(cfg.gnss).name}")
@@ -238,7 +239,7 @@ class Pipeline:
 
     def _tie_to_gnss(self, ref: Reference) -> list[Note]:
         """Shift both area-referenced maps so they match GNSS (absolute rates). Both or neither are tied."""
-        from .validate import sample_rate
+        from .validate import sample_rate, station_rate
 
         a, b = self.result.nisar_rate, self.result.s1_rate
         try:
@@ -248,7 +249,7 @@ class Pipeline:
                                             f"({type(e).__name__}: {e}); zero stays the area median.")]
         ties = {}
         for rm in (a, b):
-            d = [sample_rate(rm, st.lon, st.lat) - st.up_mm_yr for st in stations]
+            d = [sample_rate(rm, st.lon, st.lat) - station_rate(st, rm.sensor) for st in stations]
             d = [v for v in d if math.isfinite(v)]
             if d:
                 ties[rm.sensor] = (float(np.median(d)), len(d))

@@ -172,17 +172,27 @@ def build_report(r) -> str:
             for k in range(len(r.published)):
                 extra += _img(fig[f"published_{k}"], "Published velocity map comparison")
             if r.gnss and r.gnss.stations:
+                from .validate import station_rate_full
+
+                def cells(st, sn):
+                    g, gs, _ = station_rate_full(st, sn)
+                    return f"<td>{_num(st.insar.get(sn, float('nan')), 1)}</td><td>{_num(g, 1)} ± {_num(gs)}</td>"
+
                 rows = "".join(
-                    f"<tr><td>{e(st.site)}</td><td>{st.lat:.4f}, {st.lon:.4f}</td><td>{st.up_mm_yr:+.1f}"
-                    f" ± {_num(st.up_sigma_mm_yr)}</td>"
-                    + "".join(f"<td>{_num(st.insar.get(sn, float('nan')), 1)}</td>" for sn in ("NISAR", "Sentinel-1"))
-                    + f"<td>{e(st.period)}</td></tr>" for st in r.gnss.stations)
+                    f"<tr><td>{e(st.site)}</td><td>{st.lat:.4f}, {st.lon:.4f}</td>"
+                    + cells(st, "NISAR") + cells(st, "Sentinel-1")
+                    + f"<td>{st.up_mm_yr:+.1f} ± {_num(st.up_sigma_mm_yr)} ({e(st.period)})</td></tr>"
+                    for st in r.gnss.stations)
+                tied = r.reference is not None and r.reference.mode == "gnss"
                 extra += ('<div class="scroll" style="margin-top:12px"><table><thead><tr><th>Station</th>'
-                          "<th>Lat, lon</th><th>GNSS up (mm/yr)</th><th>NISAR (mm/yr)</th>"
-                          "<th>Sentinel-1 (mm/yr)</th><th>GNSS period</th></tr></thead>"
+                          "<th>Lat, lon</th><th>NISAR</th><th>GNSS, NISAR dates</th><th>Sentinel-1</th>"
+                          "<th>GNSS, Sentinel-1 dates</th><th>GNSS long-term fit</th></tr></thead>"
                           f"<tbody>{rows}</tbody></table></div>"
-                          '<p class="sub" style="margin-top:6px">InSAR values are relative to the reference '
-                          "point (before the offset is removed).</p>")
+                          '<p class="sub" style="margin-top:6px">Vertical rates in mm/yr. GNSS is measured over '
+                          "each satellite's own dates (position at the end minus position at the start). "
+                          + ("InSAR values are tied to GNSS, so they are absolute." if tied else
+                             "InSAR values are relative to the reference (before the offset is removed).")
+                          + "</p>")
             if r.literature:
                 extra += _literature_table(r.literature)
         if body or extra:

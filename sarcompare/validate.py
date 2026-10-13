@@ -52,6 +52,7 @@ class GnssStation:
     period: str = ""
     n_epochs: int = 0
     note: str = ""
+    window: dict = field(default_factory=dict)  # sensor -> GNSS rate over that sensor's own dates (see window_rate)
     insar: dict = field(default_factory=dict)  # sensor -> referenced InSAR vertical rate (mm/yr) or nan
     residual: dict = field(default_factory=dict)  # sensor -> InSAR - GNSS - offset (mm/yr)
 
@@ -151,9 +152,48 @@ def fit_velocity(dates: np.ndarray, values: np.ndarray) -> tuple[float, float]:
     return float(coef[1]), float(sigma)
 
 
+def window_rate(dates: np.ndarray, values: np.ndarray, start: date, end: date,
+                half_days: int = 6) -> tuple[float, float] | None:
+    """Rate (m/yr) and 1-sigma from the position at the end minus the position at the start of a window.
+
+    That is exactly what a gapless chain of InSAR pairs measures (the sum of the pairs is end minus start), so
+    it stays comparable when motion is seasonal, unlike a straight-line fit. Positions are medians of the days
+    within ``half_days`` of each end; None when either end has fewer than 3 days of data.
+    """
+    ends = []
+    for d0 in (start, end):
+        sel = np.array([abs((d - d0).days) <= half_days for d in dates])
+        if sel.sum() < 3:
+            return None
+        v = values[sel]
+        t = np.mean([(d - start).days for d in dates[sel]])
+        ends.append((float(np.median(v)), 1.25 * float(np.std(v)) / math.sqrt(sel.sum()), t))
+    years = (ends[1][2] - ends[0][2]) / 365.25
+    if years <= 0:
+        return None
+    return (ends[1][0] - ends[0][0]) / years, math.hypot(ends[0][1], ends[1][1]) / years
+
+
+def station_rate(st: GnssStation, sensor: str) -> float:
+    """GNSS vertical rate (mm/yr) to compare with ``sensor``: over that sensor's own dates when available."""
+    return station_rate_full(st, sensor)[0]
+
+
+def station_rate_full(st: GnssStation, sensor: str) -> tuple[float, float, str]:
+    """(rate, 1-sigma, period) of the GNSS vertical rate used for ``sensor``, in mm/yr."""
+    w = st.window.get(sensor)
+    if w:
+        return w["up_mm_yr"], w["up_sigma_mm_yr"], w["period"]
+    return st.up_mm_yr, st.up_sigma_mm_yr, st.period
+
+
 def ngl_stations(aoi: AOI, start: date, end: date, cache: str | Path, max_stations: int = 30,
-                 progress=None) -> tuple[list[GnssStation], list[str]]:
-    """Stations inside the AOI with data in the InSAR period; velocities fitted over that period."""
+                 progress=None, windows: dict | None = None) -> tuple[list[GnssStation], list[str]]:
+    """Stations inside the AOI with data in the InSAR period; velocities fitted over that period.
+
+    ``windows`` ({sensor: (start, end)}): also measure each station over each satellite's own dates
+    (``GnssStation.window``), which is what the comparison then uses.
+    """
     cache = Path(cache)
     site_file = cache / "DataHoldings.txt"
     if not site_file.exists():
@@ -185,9 +225,15 @@ def ngl_stations(aoi: AOI, start: date, end: date, cache: str | Path, max_statio
                 continue
         v, sv = fit_velocity(ts["dates"][sel], ts["u"][sel])
         d = ts["dates"][sel]
-        stations.append(GnssStation(c["site"], ts["lon"] if ts["lon"] is not None else c["lon"],
-                                    ts["lat"] if ts["lat"] is not None else c["lat"], v * 1000, sv * 1000,
-                                    f"{d.min()}→{d.max()}", int(sel.sum()), note))
+        st = GnssStation(c["site"], ts["lon"] if ts["lon"] is not None else c["lon"],
+                         ts["lat"] if ts["lat"] is not None else c["lat"], v * 1000, sv * 1000,
+                         f"{d.min()}→{d.max()}", int(sel.sum()), note)
+        for sensor, (w0, w1) in (windows or {}).items():
+            wr = window_rate(ts["dates"], ts["u"], w0, w1)
+            if wr is not None:
+                st.window[sensor] = {"up_mm_yr": wr[0] * 1000, "up_sigma_mm_yr": wr[1] * 1000,
+                                     "period": f"{w0}→{w1}"}
+        stations.append(st)
     if len(cands) > max_stations:
         skipped.append(f"{len(cands) - max_stations} more stations not used (max_stations = {max_stations})")
     return stations, skipped
@@ -234,12 +280,12 @@ def validate_gnss(stations: list[GnssStation], rates: list[RateMap], source: str
         if not both:
             stats[rm.sensor] = SensorStats(0, float("nan"), float("nan"), float("nan"), float("nan"))
             continue
-        d = np.array([st.insar[rm.sensor] - st.up_mm_yr for st in both])
+        d = np.array([st.insar[rm.sensor] - station_rate(st, rm.sensor) for st in both])
         offset = float(np.median(d))
         res = d - offset
         for st, rv in zip(both, res):
             st.residual[rm.sensor] = float(rv)
-        g = np.array([st.up_mm_yr for st in both])
+        g = np.array([station_rate(st, rm.sensor) for st in both])
         i = np.array([st.insar[rm.sensor] for st in both])
         r = float(np.corrcoef(g, i)[0, 1]) if len(both) >= 3 and g.std() > 0 and i.std() > 0 else float("nan")
         rmse = float(np.sqrt(np.mean(res ** 2))) if len(both) >= 2 else float("nan")

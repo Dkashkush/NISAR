@@ -173,8 +173,11 @@ def gnss_notes(gv, rates: list[RateMap], tied: bool = False) -> list[Note]:
             st = next(st for st in gv.stations if math.isfinite(st.insar.get(rm.sensor, float("nan"))))
             what = ("the map was tied to it, so it cannot also test it" if tied
                     else f"only the offset ({s.offset_mm_yr:+.1f} mm/yr) can be estimated")
-            add(INFO, f"{rm.sensor}: only 1 station with data ({st.site}, GNSS vertical {st.up_mm_yr:+.1f} mm/yr "
-                      f"over {st.period}); {what}. At least 2 are needed to measure errors.")
+            from .validate import station_rate_full
+
+            g, _, period = station_rate_full(st, rm.sensor)
+            add(INFO, f"{rm.sensor}: only 1 station with data ({st.site}, GNSS vertical {g:+.1f} mm/yr over "
+                      f"{period}); {what}. At least 2 are needed to measure errors.")
             continue
         noise = rm.noise_rate * 1000 if math.isfinite(rm.noise_rate) else float("nan")
         expected = math.hypot(noise, 2.0) if math.isfinite(noise) else float("nan")

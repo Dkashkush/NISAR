@@ -207,10 +207,13 @@ def gnss_scatter(gv, sensors: list[str], theme="light"):
         st = [s for s in gv.stations if np.isfinite(s.insar.get(sensor, np.nan))]
         if not st:
             continue
+        from .validate import station_rate_full
+
         off = gv.stats[sensor].offset_mm_yr
-        x = np.array([s.up_mm_yr for s in st])
+        g = [station_rate_full(s, sensor) for s in st]  # GNSS over this sensor's own dates when available
+        x = np.array([v[0] for v in g])
         y = np.array([s.insar[sensor] - off for s in st])
-        xe = np.array([s.up_sigma_mm_yr if np.isfinite(s.up_sigma_mm_yr) else 0 for s in st])
+        xe = np.array([v[1] if np.isfinite(v[1]) else 0 for v in g])
         vals += list(x) + list(y)
         rmse = gv.stats[sensor].rmse_mm_yr
         lab = f"{sensor} (RMSE {rmse:.1f} mm/yr)" if np.isfinite(rmse) else sensor
@@ -218,9 +221,12 @@ def gnss_scatter(gv, sensors: list[str], theme="light"):
                     mec=t["surface"], mew=1.5, elinewidth=1, ecolor=t["muted"], label=lab)
     if len(gv.stations) <= 12:
         for s in gv.stations:
-            ys = [s.insar[k] - gv.stats[k].offset_mm_yr for k in sensors if np.isfinite(s.insar.get(k, np.nan))]
-            if ys:
-                ax.annotate(s.site, (s.up_mm_yr, max(ys)), textcoords="offset points", xytext=(6, 4),
+            from .validate import station_rate
+
+            pts = [(station_rate(s, k), s.insar[k] - gv.stats[k].offset_mm_yr) for k in sensors
+                   if np.isfinite(s.insar.get(k, np.nan))]
+            if pts:
+                ax.annotate(s.site, max(pts, key=lambda q: q[1]), textcoords="offset points", xytext=(6, 4),
                             fontsize=7, color=t["ink2"])
     if vals:
         lo, hi = min(vals), max(vals)
