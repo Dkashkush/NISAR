@@ -12,6 +12,9 @@ on:
       frames:
         description: "Frames to inspect per track"
         default: "4"
+      point:
+        description: "Only frames containing this point: 'lon lat' (blank = all)"
+        default: "51.27 35.58"
 
 jobs:
   probe:
@@ -20,6 +23,7 @@ jobs:
     env:
       TRACKS: ${{ inputs.tracks }}
       FRAMES: ${{ inputs.frames }}
+      POINT: ${{ inputs.point }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -30,4 +34,5 @@ jobs:
         run: |
           case "$FRAMES" in ''|*[!0-9]*) echo "::error::frames must be a number"; exit 1;; esac
           for t in $TRACKS; do case "$t" in *[!0-9]*) echo "::error::tracks must be numbers"; exit 1;; esac; done
-          python scripts/probe_sources.py --tracks $TRACKS --frames "$FRAMES"
+          for v in $POINT; do case "$v" in *[!0-9.-]*) echo "::error::point must be two numbers"; exit 1;; esac; done
+          python scripts/probe_sources.py --tracks $TRACKS --frames "$FRAMES" ${POINT:+--point $POINT}

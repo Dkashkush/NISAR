@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import argparse
 import re
+from datetime import datetime
 
 import requests
 
 LICSAR_BASES = [
     "https://gws-access.jasmin.ac.uk/public/nceo_geohazards/LiCSAR_products",
-    "https://gws-access.jasmin.ac.uk/public/nceo_geohazards/LiCSAR_products.future",
 ]
 OTHER = [
     "https://data.ceda.ac.uk/neodc/comet/data/licsar_products",
@@ -45,10 +45,26 @@ def links(r) -> list[str]:
     return [h for h in re.findall(r'href="([^"?#]+)"', r.text) if not h.startswith(("/", "http", "..")) and h != "./"]
 
 
+def covers(url: str, lon: float, lat: float) -> bool:
+    """Point-in-polygon test against a LiCSAR frame outline (lon lat per line)."""
+    try:
+        r = S.get(url, timeout=60)
+        pts = [tuple(map(float, ln.split()[:2])) for ln in r.text.splitlines() if len(ln.split()) >= 2]
+    except (requests.RequestException, ValueError):
+        return False
+    inside = False
+    for (x1, y1), (x2, y2) in zip(pts, pts[1:] + pts[:1]):
+        if (y1 > lat) != (y2 > lat) and lon < x1 + (lat - y1) * (x2 - x1) / (y2 - y1):
+            inside = not inside
+    return inside
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tracks", nargs="*", type=int, default=[28, 35])
     ap.add_argument("--frames", type=int, default=4, help="frames to inspect per track")
+    ap.add_argument("--point", nargs=2, type=float, metavar=("LON", "LAT"),
+                    help="only inspect frames whose outline contains this point")
     a = ap.parse_args()
     for base in LICSAR_BASES:
         print(f"\n=== LiCSAR base {base}")
@@ -58,6 +74,9 @@ def main() -> int:
             r = get(f"{base}/{track}/")
             frames = [f.strip("/") for f in links(r)]
             print(f"    track {track}: {len(frames)} frames: {frames[:30]}")
+            if a.point:
+                frames = [f for f in frames if covers(f"{base}/{track}/{f}/metadata/{f}-poly.txt", *a.point)]
+                print(f"    frames containing {a.point}: {frames}")
             for frame in frames[: a.frames]:
                 print(f"\n  --- frame {frame}")
                 fr = get(f"{base}/{track}/{frame}/")
@@ -70,15 +89,32 @@ def main() -> int:
                 ifg = get(f"{base}/{track}/{frame}/interferograms/")
                 pairs = [p.strip("/") for p in links(ifg)]
                 print(f"    interferograms: {len(pairs)}; first {pairs[:3]}; last {pairs[-5:]}")
-                if pairs:
-                    one = get(f"{base}/{track}/{frame}/interferograms/{pairs[-1]}/")
-                    print(f"    files in {pairs[-1]}: {links(one)}")
+                for pair in sorted(pairs)[-2:]:  # the most recent pairs
+                    one = get(f"{base}/{track}/{frame}/interferograms/{pair}/")
+                    print(f"    files in {pair}: {links(one)}")
                     for name in links(one):
                         if name.endswith(".tif"):
-                            h = S.head(f"{base}/{track}/{frame}/interferograms/{pairs[-1]}/{name}", timeout=60,
+                            h = S.head(f"{base}/{track}/{frame}/interferograms/{pair}/{name}", timeout=60,
                                        allow_redirects=True)
                             print(f"      {name}: HTTP {h.status_code}, {h.headers.get('Content-Length')} bytes, "
-                                  f"ranges: {h.headers.get('Accept-Ranges')}")
+                                  f"ranges: {h.headers.get('Accept-Ranges')}, {h.headers.get('Content-Type')}")
+                spans = {}
+                for pair in pairs:
+                    try:
+                        d1, d2 = (datetime.strptime(x, "%Y%m%d") for x in pair.split("_"))
+                    except ValueError:
+                        continue
+                    spans[(d2 - d1).days] = spans.get((d2 - d1).days, 0) + 1
+                print(f"    pair spans (days: count): {dict(sorted(spans.items())[:12])}")
+                recent = sorted(p for p in pairs if p[:4] >= "2026")
+                print(f"    2026 pairs ({len(recent)}): {recent[:60]}")
+                bl = get(f"{base}/{track}/{frame}/metadata/baselines", n=300)
+                ep = get(f"{base}/{track}/{frame}/epochs/")
+                eps = [e.strip("/") for e in links(ep)]
+                print(f"    epochs: {len(eps)}; last {sorted(eps)[-3:]}")
+                if eps:
+                    last = get(f"{base}/{track}/{frame}/epochs/{sorted(eps)[-1]}/")
+                    print(f"    files in epoch {sorted(eps)[-1]}: {links(last)}")
                 for sub in links(fr):
                     if sub.strip("/") not in ("metadata", "interferograms", "epochs"):
                         x = get(f"{base}/{track}/{frame}/{sub}")
