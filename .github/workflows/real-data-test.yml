@@ -20,6 +20,11 @@ on:
         type: choice
         options: ["4", "8", "16", "24", "32"]
         default: "16"
+      s1_source:
+        description: "Sentinel-1 product type (AUTO = as in the site's config)"
+        type: choice
+        options: [AUTO, ARIA_S1_GUNW, OPERA_DISP_S1]
+        default: AUTO
 
 concurrency:
   group: real-data-test
@@ -33,6 +38,7 @@ jobs:
       EARTHDATA_TOKEN: ${{ secrets.EARTHDATA_TOKEN }}
       SITE: ${{ inputs.site }}
       MAX_PAIRS: ${{ inputs.max_pairs }}
+      S1_SOURCE: ${{ inputs.s1_source }}
     steps:
       - name: Check the Earthdata token
         run: |
@@ -41,6 +47,7 @@ jobs:
             exit 1
           fi
           case "$SITE" in central_valley|mexico_city) ;; *) echo "::error::unknown site $SITE"; exit 1;; esac
+          case "$S1_SOURCE" in AUTO|ARIA_S1_GUNW|OPERA_DISP_S1) ;; *) echo "::error::unknown s1_source"; exit 1;; esac
 
       - uses: actions/checkout@v4
 
@@ -98,10 +105,10 @@ jobs:
           df -h / /mnt
 
       - name: 1. Search (what data exists)
-        run: sarcompare --debug search "examples/$SITE.yaml" --max-pairs "$MAX_PAIRS"
+        run: sarcompare --debug search "examples/$SITE.yaml" --max-pairs "$MAX_PAIRS" --s1-source "$S1_SOURCE"
 
       - name: 2. Download, compare and validate
-        run: sarcompare --debug run "examples/$SITE.yaml" --max-pairs "$MAX_PAIRS" --data-dir /mnt/sar
+        run: sarcompare --debug run "examples/$SITE.yaml" --max-pairs "$MAX_PAIRS" --data-dir /mnt/sar --s1-source "$S1_SOURCE"
 
       - name: 3. Results summary
         if: always()

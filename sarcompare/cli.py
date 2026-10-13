@@ -22,6 +22,8 @@ def _load(args) -> Config:
         cfg.max_pairs = args.max_pairs
     if getattr(args, "data_dir", None):
         cfg.data_dir = args.data_dir
+    if getattr(args, "s1_source", None):
+        cfg.s1_source = args.s1_source
     return cfg
 
 
@@ -74,6 +76,7 @@ def main(argv=None) -> int:
     s = sub.add_parser("search", help="search ASF and show the pairs that would be used")
     s.add_argument("config")
     s.add_argument("--max-pairs", type=int, help="image pairs per satellite (overrides the config)")
+    s.add_argument("--s1-source", choices=["AUTO", "ARIA_S1_GUNW", "OPERA_DISP_S1"], help="Sentinel-1 product type")
     s.set_defaults(func=cmd_search)
     r = sub.add_parser("run", help="full workflow: search, download, compare, report")
     r.add_argument("config")
@@ -81,6 +84,7 @@ def main(argv=None) -> int:
     r.add_argument("--no-download", action="store_true", help="only use files already present locally")
     r.add_argument("--max-pairs", type=int, help="image pairs per satellite (overrides the config)")
     r.add_argument("--data-dir", help="folder for downloaded files (overrides the config)")
+    r.add_argument("--s1-source", choices=["AUTO", "ARIA_S1_GUNW", "OPERA_DISP_S1"], help="Sentinel-1 product type")
     r.set_defaults(func=cmd_run)
     d = sub.add_parser("demo", help="run on synthetic data (no account or download needed)")
     d.add_argument("--data-dir", default="data/demo")
