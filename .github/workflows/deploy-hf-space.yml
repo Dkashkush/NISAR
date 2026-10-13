@@ -8,7 +8,8 @@
 #      name it HF_TOKEN and paste the token.
 #   3. Optional: add a repository *variable* HF_SPACE such as "your-hf-username/opensar-explorer".
 #      Without it the Space is <your-hf-username>/opensar-explorer.
-# The Space is created automatically if it does not exist yet.
+# The Space is created automatically if it does not exist yet, as PRIVATE, so you can check it first.
+# Make it public later on Hugging Face: Space -> Settings -> Change visibility.
 
 name: Deploy to Hugging Face Space
 
@@ -60,7 +61,8 @@ jobs:
 
           api = HfApi(token=os.environ["HF_TOKEN"])
           space = os.environ.get("HF_SPACE") or f"{api.whoami()['name']}/opensar-explorer"
-          api.create_repo(space, repo_type="space", space_sdk="docker", exist_ok=True)
+          # New Spaces start private (only you can see them); existing Spaces keep their visibility.
+          api.create_repo(space, repo_type="space", space_sdk="docker", private=True, exist_ok=True)
           api.upload_folder(
               folder_path="dist/hf-space",
               repo_id=space,

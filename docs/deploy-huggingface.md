@@ -16,7 +16,9 @@ on every change. **Option B (manual):** drag and drop the files.
    `https://huggingface.co/spaces/<your-hf-username>/opensar-explorer`. The Space then builds for 5–10
    minutes before the app appears.
 
-The Space is created for you. To use a different name, add a repository **variable** (not a secret) called
+The Space is created for you as **private**, so only you can see it while you check it. When you are
+happy, make it public on Hugging Face: your Space → **Settings** → **Change Space visibility** → **Public**.
+To use a different name, add a repository **variable** (not a secret) called
 `HF_SPACE` with the value `your-hf-username/your-space-name`.
 
 ## Option B: manual upload
