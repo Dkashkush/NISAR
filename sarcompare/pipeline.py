@@ -87,34 +87,59 @@ class Pipeline:
             nisar_all = scan_local(cfg.nisar_dir, NISAR)
         else:
             nisar_all = search_nisar(self.aoi, cfg.start, cfg.end, cfg.nisar_flight_direction)
+        notes: list[Note] = []
         if cfg.s1_source == "LOCAL":
             s1_all = scan_local(cfg.s1_dir, SENTINEL1)
+            s1, n2 = select_pairs(s1_all, cfg.max_pairs, cfg.min_span_days, cfg.max_span_days,
+                                  cfg.s1_flight_direction)
         else:
-            s1_all, used = [], cfg.s1_source
+            # Try each source in turn and keep the first that yields usable pairs (not merely any products).
+            s1_all, s1, n2 = [], [], []
+            names = {"ARIA_S1_GUNW": "ARIA interferograms", "OPERA_DISP_S1": "OPERA DISP-S1"}
             for source in self._s1_sources():
-                used = source
-                s1_all = search_sentinel1(self.aoi, source, cfg.start, cfg.end, cfg.s1_flight_direction)
-                if s1_all:
+                found = search_sentinel1(self.aoi, source, cfg.start, cfg.end, cfg.s1_flight_direction)
+                span = max(cfg.max_span_days, 730) if source == "OPERA_DISP_S1" else cfg.max_span_days
+                sel, sel_notes = select_pairs(found, cfg.max_pairs, cfg.min_span_days, span, cfg.s1_flight_direction)
+                s1_all, s1, n2 = found, sel, sel_notes
+                if sel:
+                    if cfg.s1_source == "AUTO":
+                        notes.append(Note("search", INFO, f"Sentinel-1 source chosen automatically: {names[source]}."))
                     break
-            self._s1_used = used
-        notes = [Note("search", INFO, f"Found {len(nisar_all)} NISAR and {len(s1_all)} Sentinel-1 products.")]
-        used = getattr(self, "_s1_used", cfg.s1_source)
-        s1_max_span = max(cfg.max_span_days, 730) if used == "OPERA_DISP_S1" else cfg.max_span_days
-        if cfg.s1_source == "AUTO" and s1_all:
-            notes.append(Note("search", INFO, f"Sentinel-1 source chosen automatically: "
-                                              f"{'ARIA interferograms' if used == 'ARIA_S1_GUNW' else 'OPERA DISP-S1'}."))
+                if cfg.s1_source == "AUTO":
+                    notes.append(Note("search", INFO, f"{names[source]}: {len(found)} product(s) found, none usable "
+                                                      "for this area and period; trying the next source."))
+        notes.insert(0, Note("search", INFO, f"Found {len(nisar_all)} NISAR and {len(s1_all)} Sentinel-1 products."))
         nisar, n1 = select_pairs(nisar_all, cfg.max_pairs, cfg.min_span_days, cfg.max_span_days,
                                  cfg.nisar_flight_direction)
-        s1, n2 = select_pairs(s1_all, cfg.max_pairs, cfg.min_span_days, s1_max_span, cfg.s1_flight_direction)
         notes += n1 + n2 + overlap_notes(nisar, s1, cfg.start)
         self.result.nisar_products, self.result.s1_products = nisar, s1
         self.emit("search", f"Selected {len(nisar)} NISAR and {len(s1)} Sentinel-1 pairs", notes)
         return nisar, s1
 
+    def _session(self):
+        """Authenticated ASF session, created once when first needed."""
+        if getattr(self, "_asf_session", None) is None:
+            from .download import make_session
+            self._asf_session = make_session(self.cfg.earthdata_token)
+        return self._asf_session
+
     def download(self) -> None:
+        from .remote import is_streamable
+
         todo = [p for p in self.result.nisar_products + self.result.s1_products if p.local_path is None]
+        if self.cfg.stream_remote:
+            remote = [p for p in todo if is_streamable(p.url)]
+            todo = [p for p in todo if p not in remote]
+            if remote:
+                full = sum(p.size_mb or 0 for p in remote) / 1000
+                self.emit("download", f"Reading {len(remote)} products directly from ASF, only the part over your "
+                                      f"area (instead of downloading ~{full:.1f} GB)",
+                          [Note("download", INFO, "Only the parts of each file that cover your area are transferred. "
+                                                  "If a remote read fails, that file is downloaded in full instead.")])
+                self._session()  # check the login now, before any reading
         if not todo:
-            self.emit("download", "All selected products are available locally")
+            if not self.cfg.stream_remote:
+                self.emit("download", "All selected products are available locally")
             return
         size = sum(p.size_mb or 0 for p in todo)
         self.emit("download", f"Downloading {len(todo)} products (~{size / 1000:.1f} GB) to {self.cfg.data_dir}",
@@ -123,12 +148,29 @@ class Pipeline:
         def prog(i, n, p):
             self.on_event(Event("download", f"{i + 1}/{n}: {p.name}", progress=i / n))
 
-        session = None
-        if self.cfg.earthdata_token:
-            from .download import make_session
-            session = make_session(self.cfg.earthdata_token)
-        download_products(todo, self.cfg.data_dir, session=session, progress=prog)
+        download_products(todo, self.cfg.data_dir, session=self._session(), progress=prog)
         self.emit("download", "Download complete", progress=1.0)
+
+    def _read(self, p: Product):
+        """Read one product: locally if downloaded, otherwise remotely (falling back to a full download)."""
+        cfg = self.cfg
+        kw = dict(nisar_polarization=cfg.nisar_polarization, nisar_apply_ionosphere=cfg.nisar_apply_ionosphere,
+                  nisar_sign=cfg.nisar_sign, s1_sign=cfg.s1_sign)
+        if p.local_path is not None:
+            return read_product(p, self.aoi, **kw)
+        from .remote import open_remote
+
+        try:
+            with open_remote(p.url, self._session()) as fobj:
+                return read_product(p, self.aoi, fileobj=fobj, **kw)
+        except ValueError:
+            raise  # e.g. the product does not cover the area: downloading would not help
+        except Exception as e:  # network / server problems: fall back to downloading the file
+            self.emit("load", f"Remote read failed for {p.name}; downloading it instead",
+                      [Note("load", INFO, f"Remote read of {p.name} failed ({type(e).__name__}: {e}); "
+                                          "downloading the whole file instead.")])
+            download_products([p], cfg.data_dir, session=self._session())
+            return read_product(p, self.aoi, **kw)
 
     def load_and_stack(self) -> None:
         cfg = self.cfg
@@ -141,10 +183,8 @@ class Pipeline:
             ifgs = []
             for k, p in enumerate(products):
                 try:
-                    ifg = read_product(p, self.aoi, nisar_polarization=cfg.nisar_polarization,
-                                       nisar_apply_ionosphere=cfg.nisar_apply_ionosphere,
-                                       nisar_sign=cfg.nisar_sign, s1_sign=cfg.s1_sign)
-                except (ValueError, KeyError, OSError) as e:  # bad subset, missing layer, corrupt file
+                    ifg = self._read(p)
+                except (ValueError, KeyError, OSError, RuntimeError) as e:  # bad subset, missing layer, bad file
                     self.emit("load", f"Skipping {p.name}", [Note("load", WARN, f"Could not use {p.name}: {e}")])
                     continue
                 ifgs.append(ifg)

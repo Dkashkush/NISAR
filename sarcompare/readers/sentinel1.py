@@ -19,7 +19,7 @@ from pyproj import CRS
 from ..aoi import AOI
 from ..notes import WARN, Note
 from ..products import SENTINEL1, WAVELENGTH_S1_C, pair_dates_from_name
-from .base import Interferogram, aoi_slices, apply_fill, decode, make_da
+from .base import Interferogram, aoi_slices, apply_fill, decode, make_da, source_name
 
 DEFAULT_INCIDENCE = 38.0  # mid-swath for Sentinel-1 IW (range ~30-46°)
 # ARIA GUNW uses the later acquisition as reference, so positive phase = motion toward the satellite.
@@ -48,10 +48,10 @@ def _first(h5: h5py.File, *candidates: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def read_aria_gunw(path: str | Path, aoi: AOI, sign: float | None = None) -> Interferogram:
-    path = Path(path)
+def read_aria_gunw(path, aoi: AOI, sign: float | None = None, name: str | None = None) -> Interferogram:
+    fname = source_name(path, name)
     notes: list[Note] = []
-    date1, date2 = _dates(path.name)
+    date1, date2 = _dates(fname)
     with h5py.File(path, "r") as h5:
         g = "/science/grids/data"
         lon, lat = h5[f"{g}/longitude"][()], h5[f"{g}/latitude"][()]
@@ -70,7 +70,7 @@ def read_aria_gunw(path: str | Path, aoi: AOI, sign: float | None = None) -> Int
         inc = DEFAULT_INCIDENCE
         notes.append(Note("load", WARN, f"Sentinel-1 {date1}→{date2}: no incidence layer; assuming {inc}°."))
     direction = None
-    name_upper = path.name.upper()
+    name_upper = fname.upper()
     if "-A-" in name_upper:
         direction = "ASCENDING"
     elif "-D-" in name_upper:
@@ -78,7 +78,7 @@ def read_aria_gunw(path: str | Path, aoi: AOI, sign: float | None = None) -> Int
     s = ARIA_PHASE_SIGN if sign is None else sign
     los = s * phase * wavelength / (4 * np.pi)
     return Interferogram(
-        sensor=SENTINEL1, product_type="ARIA_GUNW", name=path.name, date1=date1, date2=date2,
+        sensor=SENTINEL1, product_type="ARIA_GUNW", name=fname, date1=date1, date2=date2,
         los=make_da(los, lon[cols], lat[rows], "EPSG:4326", "los"),
         coherence=make_da(coh, lon[cols], lat[rows], "EPSG:4326", "coherence"),
         wavelength=wavelength, incidence_deg=inc, flight_direction=direction, notes=notes,
@@ -99,11 +99,11 @@ def _opera_crs(h5: h5py.File):
     raise ValueError("OPERA DISP-S1: missing spatial_ref CRS")
 
 
-def read_opera_disp(path: str | Path, aoi: AOI, sign: float | None = None) -> Interferogram:
-    path = Path(path)
+def read_opera_disp(path, aoi: AOI, sign: float | None = None, name: str | None = None) -> Interferogram:
+    fname = source_name(path, name)
     notes = [Note("load", WARN, "OPERA DISP-S1 files do not carry incidence angles (they are in the separate "
                                 f"DISP-S1-STATIC product); assuming {DEFAULT_INCIDENCE}° for vertical projection.")]
-    date1, date2 = _dates(path.name)
+    date1, date2 = _dates(fname)
     with h5py.File(path, "r") as h5:
         crs = _opera_crs(h5)
         x, y = h5["x"][()], h5["y"][()]
@@ -117,7 +117,7 @@ def read_opera_disp(path: str | Path, aoi: AOI, sign: float | None = None) -> In
             disp = np.where(h5["recommended_mask"][rows, cols] == 0, np.nan, disp)
     s = OPERA_SIGN if sign is None else sign
     return Interferogram(
-        sensor=SENTINEL1, product_type="DISP-S1", name=path.name, date1=date1, date2=date2,
+        sensor=SENTINEL1, product_type="DISP-S1", name=fname, date1=date1, date2=date2,
         los=make_da(s * disp, x[cols], y[rows], crs, "los"),
         coherence=make_da(coh, x[cols], y[rows], crs, "coherence"),
         wavelength=WAVELENGTH_S1_C, incidence_deg=DEFAULT_INCIDENCE, notes=notes,

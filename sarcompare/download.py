@@ -12,17 +12,42 @@ from .products import Product
 EARTHDATA_HOST = "urs.earthdata.nasa.gov"
 
 
+def clean_token(token: str | None) -> str | None:
+    """Remove what often sneaks in when a token is copied: spaces, line breaks, quotes, a 'Bearer ' prefix."""
+    if not token:
+        return None
+    t = token.strip().strip('"').strip("'").strip()
+    if t.lower().startswith("bearer "):
+        t = t[7:].strip()
+    return "".join(t.split()) or None
+
+
+def describe_token(token: str | None) -> str:
+    """Safe description (never the token itself) to help diagnose a rejected token."""
+    t = clean_token(token)
+    if not t:
+        return "no token"
+    looks_jwt = t.startswith("eyJ") and t.count(".") == 2
+    return (f"{len(t)} characters, {'looks like' if looks_jwt else 'does NOT look like'} an Earthdata token "
+            "(those are long, about 500-1500 characters, start with 'eyJ' and contain two dots)")
+
+
 def make_session(token: str | None = None):
     """ASF session authenticated from an explicit token (per user, e.g. typed into the web app), else
     EARTHDATA_TOKEN, EARTHDATA_USERNAME/PASSWORD, or ~/.netrc on the machine running the app."""
     import asf_search as asf
 
     session = asf.ASFSession()
-    token = token or os.environ.get("EARTHDATA_TOKEN")
+    token = clean_token(token or os.environ.get("EARTHDATA_TOKEN"))
     user = os.environ.get("EARTHDATA_USERNAME")
     password = os.environ.get("EARTHDATA_PASSWORD")
     if token:
-        return session.auth_with_token(token)
+        try:
+            return session.auth_with_token(token)
+        except asf.exceptions.ASFAuthenticationError as e:
+            raise RuntimeError(
+                "NASA Earthdata rejected the token (" + describe_token(token) + "). Generate a new one at "
+                "https://urs.earthdata.nasa.gov (Generate Token), copy the whole token, and save it again.") from e
     if user and password:
         return session.auth_with_creds(user, password)
     try:

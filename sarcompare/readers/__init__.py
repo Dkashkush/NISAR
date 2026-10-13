@@ -13,17 +13,20 @@ __all__ = ["Interferogram", "read_product", "read_nisar_gunw", "read_aria_gunw",
 
 
 def read_product(product: Product, aoi: AOI, *, nisar_polarization=None, nisar_apply_ionosphere=False,
-                 nisar_sign=None, s1_sign=None) -> Interferogram:
-    if product.local_path is None:
+                 nisar_sign=None, s1_sign=None, fileobj=None) -> Interferogram:
+    """Read a downloaded product, or one opened remotely (``fileobj``, see sarcompare.remote)."""
+    if product.local_path is None and fileobj is None:
         raise ValueError(f"{product.name} has not been downloaded")
     t = product.product_type
+    src = fileobj if fileobj is not None else product.local_path
+    name = (product.url or "").split("?")[0].rsplit("/", 1)[-1] if fileobj is not None else None
     if t == "GUNW":
-        return read_nisar_gunw(product.local_path, aoi, polarization=nisar_polarization,
-                               apply_ionosphere=nisar_apply_ionosphere, sign=nisar_sign)
+        return read_nisar_gunw(src, aoi, polarization=nisar_polarization,
+                               apply_ionosphere=nisar_apply_ionosphere, sign=nisar_sign, name=name)
     if t == "ARIA_GUNW":
-        return read_aria_gunw(product.local_path, aoi, sign=s1_sign)
+        return read_aria_gunw(src, aoi, sign=s1_sign, name=name)
     if t == "DISP-S1":
-        return read_opera_disp(product.local_path, aoi, sign=s1_sign)
+        return read_opera_disp(src, aoi, sign=s1_sign, name=name)
     if t == "HYP3_INSAR":
         return read_hyp3_insar(product.local_path, aoi, sign=s1_sign)
     raise ValueError(f"No reader for product type {t!r}")

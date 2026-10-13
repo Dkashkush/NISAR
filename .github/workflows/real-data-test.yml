@@ -16,10 +16,10 @@ on:
         options: [central_valley, mexico_city]
         default: central_valley
       max_pairs:
-        description: "Image pairs per satellite (fewer = faster, noisier)"
+        description: "Image pairs per satellite (more = longer period, less noise)"
         type: choice
-        options: ["3", "4", "6", "8"]
-        default: "4"
+        options: ["4", "6", "8", "12", "16"]
+        default: "8"
 
 concurrency:
   group: real-data-test
@@ -52,11 +52,31 @@ jobs:
       - name: Install
         run: pip install -e .
 
+      - name: Check the Earthdata login
+        run: |
+          python - <<'PY'
+          import sys
+          from sarcompare.download import describe_token, make_session
+          import os
+          print("Token:", describe_token(os.environ.get("EARTHDATA_TOKEN")))
+          try:
+              make_session()
+          except Exception as e:
+              print(f"::error::{e}")
+              sys.exit(1)
+          print("Earthdata login OK")
+          PY
+
+      - name: Prepare disk space
+        run: |
+          sudo mkdir -p /mnt/sar && sudo chown "$USER" /mnt/sar
+          df -h / /mnt
+
       - name: 1. Search (what data exists)
         run: sarcompare --debug search "examples/$SITE.yaml" --max-pairs "$MAX_PAIRS"
 
       - name: 2. Download, compare and validate
-        run: sarcompare --debug run "examples/$SITE.yaml" --max-pairs "$MAX_PAIRS"
+        run: sarcompare --debug run "examples/$SITE.yaml" --max-pairs "$MAX_PAIRS" --data-dir /mnt/sar
 
       - name: 3. Results summary
         if: always()

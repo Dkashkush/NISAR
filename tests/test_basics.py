@@ -134,3 +134,16 @@ def test_gunw_mask_decoding():
         out = _decode_gunw_mask(ds, slice(None), slice(None))
     # valid land / water / no secondary / no reference / nothing / fill
     assert out.tolist() == [[True, False, False], [False, False, False]]
+
+
+def test_select_pairs_prefers_consecutive_window():
+    from datetime import timedelta as td
+    from sarcompare.search import _best_window
+
+    d = date(2025, 11, 1)
+    chain = [_p(d + td(12 * k), d + td(12 * (k + 1))) for k in range(3)]          # consecutive
+    chain += [_p(d + td(60 + 24 * k), d + td(72 + 24 * k)) for k in range(4)]      # gaps between pairs
+    w = _best_window(chain, 3)
+    assert all(a.date2 == b.date1 for a, b in zip(w, w[1:]))
+    sel, notes = select_pairs(chain, max_pairs=3, min_span=6, max_span=96)
+    assert any("consecutive pairs" in n.text for n in notes)

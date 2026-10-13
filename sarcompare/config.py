@@ -52,6 +52,8 @@ class Config:
 
     earthdata_token: str | None = field(default=None, repr=False)  # per-run credential; never written to disk
 
+    stream_remote: bool = True  # read only the needed parts of remote files instead of downloading them
+
     data_dir: str = "data"
     output_dir: str = "outputs"
     extra: dict = field(default_factory=dict)

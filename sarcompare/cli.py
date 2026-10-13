@@ -20,6 +20,8 @@ def _load(args) -> Config:
         cfg.output_dir = args.output_dir
     if getattr(args, "max_pairs", None):
         cfg.max_pairs = args.max_pairs
+    if getattr(args, "data_dir", None):
+        cfg.data_dir = args.data_dir
     return cfg
 
 
@@ -78,6 +80,7 @@ def main(argv=None) -> int:
     r.add_argument("--output-dir")
     r.add_argument("--no-download", action="store_true", help="only use files already present locally")
     r.add_argument("--max-pairs", type=int, help="image pairs per satellite (overrides the config)")
+    r.add_argument("--data-dir", help="folder for downloaded files (overrides the config)")
     r.set_defaults(func=cmd_run)
     d = sub.add_parser("demo", help="run on synthetic data (no account or download needed)")
     d.add_argument("--data-dir", default="data/demo")

@@ -154,11 +154,20 @@ def _local_size_mb(path: Path) -> float:
 # ---------------------------------------------------------------------------
 
 
-def _evenly(items: list, n: int) -> list:
-    if len(items) <= n:
-        return items
-    step = (len(items) - 1) / (n - 1) if n > 1 else 0
-    return [items[round(i * step)] for i in range(n)]
+
+
+def _best_window(chain: list[Product], n: int) -> list[Product]:
+    """The run of ``n`` chain pairs with the fewest gaps, then the longest time span, then the most recent."""
+    if len(chain) <= n:
+        return chain
+    best, best_key = None, None
+    for i in range(len(chain) - n + 1):
+        w = chain[i:i + n]
+        gaps = sum(1 for a, b in zip(w, w[1:]) if b.date1 != a.date2)
+        key = (gaps, -(w[-1].date2 - w[0].date1).days, -w[-1].date2.toordinal())
+        if best_key is None or key < best_key:
+            best, best_key = w, key
+    return best
 
 
 def select_pairs(products: list[Product], max_pairs: int, min_span: int, max_span: int,
@@ -198,9 +207,16 @@ def select_pairs(products: list[Product], max_pairs: int, min_span: int, max_spa
         if not chain or p.date1 >= chain[-1].date2:
             chain.append(p)
     if len(chain) >= 2:
-        selected = _evenly(chain, max_pairs)
-        notes.append(Note("search", GOOD, f"{sensor}: built a sequential chain of {len(chain)} pairs "
-                                          f"(using {len(selected)}). Sequential pairs add up to a continuous record."))
+        selected = _best_window(chain, max_pairs)
+        gaps = sum(1 for a, b in zip(selected, selected[1:]) if b.date1 != a.date2)
+        span = (selected[-1].date2 - selected[0].date1).days
+        if gaps == 0:
+            notes.append(Note("search", GOOD, f"{sensor}: using {len(selected)} consecutive pairs covering {span} days "
+                                              f"({selected[0].date1} → {selected[-1].date2}). Added together, the "
+                                              "atmospheric noise of the in-between dates cancels out."))
+        else:
+            notes.append(Note("search", INFO, f"{sensor}: using {len(selected)} pairs over {span} days with {gaps} "
+                                              "gap(s) between them; consecutive pairs would give less noise."))
     else:
         selected = sorted(group, key=lambda p: -p.span_days)[:max_pairs]
         selected.sort(key=lambda p: p.date1)

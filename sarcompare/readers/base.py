@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from datetime import date
 
 import numpy as np
@@ -78,3 +79,12 @@ def decode(value) -> str:
     if isinstance(value, bytes):
         return value.decode(errors="ignore")
     return str(value)
+
+
+def source_name(source, name: str | None = None) -> str:
+    """File name used for dates/geometry: explicit ``name``, else the path's name (sources may be file objects)."""
+    if name:
+        return name
+    if isinstance(source, (str, Path)):
+        return Path(source).name
+    return getattr(source, "name", None) or "remote.h5"

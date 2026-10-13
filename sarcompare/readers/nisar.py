@@ -22,7 +22,7 @@ import numpy as np
 from ..aoi import AOI
 from ..notes import INFO, WARN, Note
 from ..products import NISAR, WAVELENGTH_NISAR_L, pair_dates_from_name
-from .base import Interferogram, aoi_slices, apply_fill, decode, make_da
+from .base import Interferogram, aoi_slices, apply_fill, decode, make_da, source_name
 
 SPEED_OF_LIGHT = 299_792_458.0
 # NISAR interferograms are reference x conj(secondary) with the earlier acquisition as reference,
@@ -129,9 +129,10 @@ def _incidence(h5: h5py.File, paths: list[str], aoi_xy: tuple[float, float]) -> 
     return val if np.isfinite(val) else None
 
 
-def read_nisar_gunw(path: str | Path, aoi: AOI, polarization: str | None = None,
-                    apply_ionosphere: bool = False, sign: float | None = None) -> Interferogram:
-    path = Path(path)
+def read_nisar_gunw(path, aoi: AOI, polarization: str | None = None, apply_ionosphere: bool = False,
+                    sign: float | None = None, name: str | None = None) -> Interferogram:
+    """``path`` may be a local path or an open file-like object (e.g. a remote file, see sarcompare.remote)."""
+    fname = source_name(path, name)
     notes: list[Note] = []
     with h5py.File(path, "r") as h5:
         paths = _all_datasets(h5)
@@ -176,7 +177,7 @@ def read_nisar_gunw(path: str | Path, aoi: AOI, polarization: str | None = None,
             f = float(np.asarray(h5[freq_paths[0]][()]).ravel()[0])
             if f > 1e8:
                 wavelength = SPEED_OF_LIGHT / f
-        date1, date2 = _dates(h5, paths, path.name)
+        date1, date2 = _dates(h5, paths, fname)
         cx, cy = (bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2
         inc = _incidence(h5, paths, (cx, cy))
         direction = None
@@ -196,7 +197,7 @@ def read_nisar_gunw(path: str | Path, aoi: AOI, polarization: str | None = None,
                                        f"{iono_std_mm:.1f} mm (1σ) over the AOI. L-band is ~20× more sensitive "
                                        "to the ionosphere than C-band."))
     return Interferogram(
-        sensor=NISAR, product_type="GUNW", name=path.name, date1=date1, date2=date2,
+        sensor=NISAR, product_type="GUNW", name=fname, date1=date1, date2=date2,
         los=make_da(los, x[cols], y[rows], f"EPSG:{epsg}", "los"),
         coherence=make_da(coh, x[cols], y[rows], f"EPSG:{epsg}", "coherence"),
         wavelength=wavelength, incidence_deg=inc, flight_direction=direction, notes=notes,

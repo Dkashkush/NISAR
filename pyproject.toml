@@ -21,6 +21,8 @@ dependencies = [
     "matplotlib>=3.7",
     "pyyaml>=6.0",
     "asf_search>=8.0",
+    "fsspec>=2024.2",
+    "aiohttp>=3.9",
 ]
 
 [project.optional-dependencies]
