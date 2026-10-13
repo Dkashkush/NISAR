@@ -282,3 +282,18 @@ def test_plan_explains_when_dates_do_not_match():
     assert any("none that form pairs" in n.text and "2028-01-01" in n.text for n in notes)
     res = H.order(_client(FakeHyP3()), AOI_, pairs)
     assert res.submitted == [] and "nothing was sent" in res.notes[0].text
+
+
+def test_plan_follows_the_satellite_that_took_over_the_track():
+    """Real case (Tehran, 2026): Sentinel-1A imaged the track until June, Sentinel-1D from late June on."""
+    scenes = []
+    for k in range(22):
+        d = date(2025, 10, 9) + timedelta(days=12 * k)
+        scenes.append(H._Scene(_slc("S1A", d, k), d, "ASCENDING", 28, "Sentinel-1A", 1.0))
+    for k in range(10):
+        d = date(2026, 6, 25) + timedelta(days=12 * k)
+        scenes.append(H._Scene(_slc("S1D", d, 50 + k), d, "ASCENDING", 28, "Sentinel-1D", 1.0))
+    nisar = [date(2026, 7, 24), date(2026, 8, 17), date(2026, 8, 29), date(2026, 9, 10), date(2026, 9, 22)]
+    pairs, _ = H.plan_pairs(AOI_, target={"ASCENDING": nisar}, max_pairs=4, scenes=scenes)
+    assert len(pairs) == 4 and all(p.platform == "Sentinel-1D" for p in pairs)
+    assert pairs[0].date1 >= date(2026, 7, 19) and pairs[-1].date2 <= date(2026, 9, 28)

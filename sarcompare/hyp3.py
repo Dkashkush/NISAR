@@ -308,10 +308,20 @@ def plan_pairs(aoi: AOI, start=None, end=None, *, target: dict[str, list[date]] 
             notes.append(Note("search", INFO, f"No {direction.lower()} Sentinel-1 track covers at least "
                                               f"{min_cover:.0%} of the area."))
             continue
-        key = max(keys, key=score)
+        want = target.get(direction) or target.get("", []) or all_dates
+
+        def fit(k, want=want):
+            """Target dates with an image of this group within 6 days (satellites hand over: e.g. Sentinel-1D
+            took over Sentinel-1A's tracks in 2026, so the group with most images may end before NISAR starts)."""
+            days_k = sorted(groups[k])
+            if not want:
+                return sum(1 for d in days_k if (not start or d >= start) and (not end or d <= end))
+            return sum(1 for d in want if min(abs((a - d).days) for a in days_k) <= 6)
+
+        key = max(keys, key=lambda k: (fit(k), score(k)))
         days = groups[key]
         avail = sorted(days)
-        chain = _nodes(target.get(direction) or target.get("", []) or all_dates, avail, max_pairs, start, end)
+        chain = _nodes(want, avail, max_pairs, start, end)
         pairs = []
         for d1, d2 in zip(chain, chain[1:]):
             if not (min_span <= (d2 - d1).days <= max_span):
@@ -320,7 +330,6 @@ def plan_pairs(aoi: AOI, start=None, end=None, *, target: dict[str, list[date]] 
             pairs.append(PlannedPair(a.name, b.name, d1, d2, direction, key[1], key[2], min(a.cover, b.cover)))
         pairs = pairs[-max_pairs:]
         if not pairs:
-            want = target.get(direction) or target.get("", []) or all_dates
             when = f" the NISAR dates ({min(want)} → {max(want)})" if want else " the period"
             notes.append(Note("search", WARN, f"Sentinel-1 {direction.lower()} track {key[1]} ({key[2]}) has images "
                                               f"from {avail[0]} to {avail[-1]}, but none that form pairs of "
