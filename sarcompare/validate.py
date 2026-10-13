@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import csv
 import math
+import re
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -393,9 +394,33 @@ class PublishedValidation:
     stats: dict[str, MapStats]
     difference: dict[str, xr.DataArray]  # sensor - published (mm/yr)
     period: str = ""
+    component: str = "vertical"  # "vertical", or "east-west" (compared with the east-west maps)
 
 
 _LENGTH_MM = {"mm": 1.0, "cm": 10.0, "m": 1000.0, "ft": 304.8, "in": 25.4}
+
+
+EGMS_CITATION = ("Copernicus Land Monitoring Service: European Ground Motion Service (EGMS), Ortho product "
+                 "(vertical and east-west velocity, 100 m grid). https://egms.land.copernicus.eu")
+_EGMS_NAME = re.compile(r"EGMS_L3_.*?_(?P<comp>[UE])_(?P<y1>\d{4})_(?P<y2>\d{4})", re.IGNORECASE)
+
+
+def egms_defaults(path: str | Path) -> dict:
+    """Settings for an EGMS Ortho tile recognised from its file name (e.g. EGMS_L3_E32N26_100km_U_2019_2023_1.tiff):
+    U = vertical, E = east-west, mean velocity in mm/yr, positive up / east. Empty if the name does not match."""
+    m = _EGMS_NAME.search(Path(str(path)).name)
+    if not m:
+        return {}
+    vertical = m["comp"].upper() == "U"
+    period = f"{m['y1']}-{m['y2']}"
+    return {"units": "mm/yr", "sign": 1, "component": "vertical" if vertical else "east-west", "period": period,
+            "label": f"EGMS Ortho {'vertical' if vertical else 'east-west'} {period}", "citation": EGMS_CITATION}
+
+
+def published_component(spec: dict) -> str:
+    """"vertical" (also for LOS maps, which are converted) or "east-west"."""
+    c = str(spec.get("component", "vertical")).lower().replace("_", "-").replace(" ", "-")
+    return "east-west" if c in ("east-west", "east", "ew", "e") else "vertical"
 
 
 def _units_to_mm_per_yr(spec: dict) -> float:
@@ -416,7 +441,8 @@ def _units_to_mm_per_yr(spec: dict) -> float:
 
 
 def load_published_map(spec: dict, template: xr.DataArray) -> xr.DataArray:
-    """Read a published velocity raster and convert it to vertical mm/yr, positive = up."""
+    """Read a published velocity raster and convert it to mm/yr: vertical (positive = up), or for an east-west map
+    (component: east-west) positive = east."""
     da = rioxarray.open_rasterio(spec["path"], masked=True)
     if "band" in da.dims:
         da = da.isel(band=int(spec.get("band", 1)) - 1, drop=True)
@@ -462,14 +488,16 @@ def validate_published(spec: dict, rates: list[RateMap], ref: Reference, inside:
         ok = own & np.isfinite(pv)
         x, y = pv[ok], r_[ok]
         diffs[rm.sensor] = rm.rate.copy(data=np.where(ok, r_ - pv, np.nan).astype("float32"))
-        if ok.sum() >= 3 and x.std() > 0 and y.std() > 0:
-            stats[rm.sensor] = MapStats(int(ok.sum()), float(np.corrcoef(x, y)[0, 1]), _tls_slope(x, y),
-                                        float(np.sqrt(np.mean((y - x) ** 2))), float(np.mean(y - x)),
-                                        float(ok.sum() / max(own.sum(), 1)))
+        cov = float(ok.sum() / max(own.sum(), 1))
+        if ok.sum() >= 3:
+            varied = x.std() > 0 and y.std() > 0  # correlation and slope need variation in both maps
+            stats[rm.sensor] = MapStats(int(ok.sum()), float(np.corrcoef(x, y)[0, 1]) if varied else float("nan"),
+                                        _tls_slope(x, y) if varied else float("nan"),
+                                        float(np.sqrt(np.mean((y - x) ** 2))), float(np.mean(y - x)), cov)
         else:
-            stats[rm.sensor] = MapStats(int(ok.sum()), *(float("nan"),) * 4, float(ok.sum() / max(own.sum(), 1)))
+            stats[rm.sensor] = MapStats(int(ok.sum()), *(float("nan"),) * 4, cov)
     return PublishedValidation(spec.get("label") or Path(spec["path"]).stem, str(spec["path"]), mode, pub,
-                               stats, diffs, str(spec.get("period", "")))
+                               stats, diffs, str(spec.get("period", "")), published_component(spec))
 
 
 # ---------------------------------------------------------------------------

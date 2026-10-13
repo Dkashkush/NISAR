@@ -235,11 +235,19 @@ def published_notes(pv, rates: list[RateMap]) -> list[Note]:
     notes: list[Note] = []
     add = lambda lvl, text: notes.append(Note("validate", lvl, text))  # noqa: E731
     period = f" (period {pv.period})" if pv.period else ""
-    add(INFO, f"Published map '{pv.label}'{period}: {pv.reference_mode}.")
+    what = " East-west motion, compared with this run's east-west maps." if getattr(pv, "component", "") == "east-west" else ""
+    add(INFO, f"Published map '{pv.label}'{period}: {pv.reference_mode}.{what}")
     for rm in rates:
         s = pv.stats[rm.sensor]
-        if s.n < 3 or not math.isfinite(s.r):
+        if s.n < 3:
             add(WARN, f"{rm.sensor}: too little overlap with '{pv.label}' to compare ({s.n} pixels).")
+            continue
+        if not math.isfinite(s.r):  # one map has no variation (e.g. stable ground): only the size of the difference
+            noise = rm.noise_rate * 1000 if math.isfinite(rm.noise_rate) else 10.0
+            lvl = GOOD if s.rmsd_mm_yr <= 2 * noise else WARN
+            add(lvl, f"{rm.sensor} vs '{pv.label}': RMS difference {s.rmsd_mm_yr:.1f} mm/yr over {s.n:,} pixels "
+                     f"(mean difference {s.bias_mm_yr:+.1f}); one of the maps is uniform, so no correlation is "
+                     f"computed. {'Within' if lvl == GOOD else 'More than'} twice the noise (~{noise:.0f} mm/yr).")
             continue
         base = (f"{rm.sensor} vs '{pv.label}': r = {s.r:.2f}, slope {_fmt(s.slope, 2)}, RMS difference "
                 f"{s.rmsd_mm_yr:.1f} mm/yr over {s.n:,} pixels ({s.coverage:.0%} of {rm.sensor}'s valid area).")

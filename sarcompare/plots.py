@@ -264,5 +264,6 @@ def published_panels(pv, sensors: list[str], ref: Reference, theme="light"):
     finite = pub.values[np.isfinite(pub.values)]
     lim = max(float(np.nanpercentile(np.abs(finite), 98)) if finite.size else 10.0, 5.0)
     panels = [(f"Published: {pv.label}", pub)] + [(f"{s} − published", pv.difference[s]) for s in sensors]
-    return _map_row(panels, _diverging(t), -lim, lim, "vertical rate / difference (mm/yr)", ref, t,
+    what = "east-west rate" if getattr(pv, "component", "vertical") == "east-west" else "vertical rate"
+    return _map_row(panels, _diverging(t), -lim, lim, f"{what} / difference (mm/yr)", ref, t,
                     f"Validation against a published velocity map ({pv.label})")

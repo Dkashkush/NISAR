@@ -344,11 +344,22 @@ class Pipeline:
             except Exception as e:  # network or file problems must not lose the whole comparison
                 notes = [Note("validate", WARN, f"GNSS validation failed: {type(e).__name__}: {e}")]
             self.emit("validate", "Compared with GNSS", notes)
-        for spec in cfg.published_maps:
+        for raw in cfg.published_maps:
+            spec = {**V.egms_defaults(raw.get("path", "")), **raw}  # EGMS tiles are recognised by name
+            targets = rates
+            if V.published_component(spec) == "east-west":
+                targets = [v for v in r.east.values() if v is not None]
+                if not targets:
+                    self.emit("validate", f"Skipped published map {spec.get('label') or spec.get('path')}",
+                              [Note("validate", INFO, f"'{spec.get('label') or spec.get('path')}' shows east-west "
+                                                      "motion. It can only be compared when both orbit directions "
+                                                      "were combined, which needs ascending and descending passes "
+                                                      "over the area.")])
+                    continue
             try:
-                pv = V.validate_published(spec, rates, r.reference, r.inside)
+                pv = V.validate_published(spec, targets, r.reference, r.inside)
                 r.published.append(pv)
-                notes = published_notes(pv, rates)
+                notes = published_notes(pv, targets)
             except Exception as e:
                 notes = [Note("validate", WARN, f"Could not use published map {spec.get('path')}: {e}")]
             self.emit("validate", f"Compared with published map {spec.get('label') or spec.get('path')}", notes)
@@ -380,7 +391,7 @@ class Pipeline:
         if r.gnss and r.gnss.stations:
             builders["gnss"] = lambda th: plots.gnss_scatter(r.gnss, [NISAR, SENTINEL1], th)
         for k, pv in enumerate(r.published):
-            builders[f"published_{k}"] = lambda th, pv=pv: plots.published_panels(pv, [NISAR, SENTINEL1],
+            builders[f"published_{k}"] = lambda th, pv=pv: plots.published_panels(pv, list(pv.stats),
                                                                                   r.reference, th)
         for name, build in builders.items():
             r.figures[name] = {th: plots.to_png(build(th)) for th in ("light", "dark")}

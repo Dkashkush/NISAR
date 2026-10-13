@@ -236,12 +236,13 @@ which is exactly what a chain of InSAR pairs measures), so seasonal motion does 
 
 | Product | Region | Component | Units | Sign |
 |---|---|---|---|---|
-| EGMS Ortho (Copernicus) | Europe | vertical | mm/yr | + up |
+| EGMS Ortho (Copernicus): recognised by file name, nothing to fill in | Europe | vertical (`_U_`) or east-west (`_E_`) | mm/yr | + up / + east |
 | LiCSAR/COMET LiCSBAS velocities | Global (selected frames) | LOS | mm/yr | + toward satellite |
 | OPERA DISP-S1 velocity | North America | LOS | m/yr | + toward satellite |
 | Paper supplementary GeoTIFFs | varies | check the paper | check | check |
 
-The map is converted to vertical mm/yr and referenced exactly like the InSAR maps. The app then reports
+The map is converted to vertical mm/yr (an east-west map is compared with the app's east-west map) and
+referenced exactly like the InSAR maps. See [the validation guide](docs/validation-guide.md) for downloading EGMS. The app then reports
 correlation, slope and RMS difference, with difference maps. Different time periods are the most common
 reason for honest disagreement, so fill in `period`.
 

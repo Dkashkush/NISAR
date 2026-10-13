@@ -33,6 +33,23 @@ What this shows:
 - Only 2 NGL stations have current data inside the area, so the maps are tied to GNSS with a single shift.
   More stations (or a longer period) would let the app remove that tilt.
 
+### Mexico City with both orbit directions
+
+Re-run with ascending and descending passes for both satellites (8 consecutive pairs per direction, Nov 2025 –
+Feb 2026; NISAR tracks 19 and 113, Sentinel-1 ARIA tracks 78 and 143), so vertical and east-west motion are
+separated instead of assuming the ground only moves up and down:
+
+| | One direction | Both directions |
+|---|---|---|
+| Agreement NISAR vs Sentinel-1 (all pixels) | r = 0.73 | **r = 0.88** |
+| Tilt between the two maps | 219 mm/yr | **22 mm/yr** |
+| MMX1: GNSS vs NISAR (same dates) | −270 vs −278 | −278 vs **−279** |
+| MMX1: GNSS vs Sentinel-1 (same dates) | −255 vs −231 | −280 vs −253 |
+| East-west motion | not measured | none above the noise (≈ 30 mm/yr), as expected: Chaussard et al. (2014) and Cigna & Tapete (2021) both find the motion in Mexico City is overwhelmingly vertical |
+
+Combining directions also averages the atmosphere of more acquisition dates, which is why the tilt between
+the satellites nearly disappears.
+
 ### Mexico City against published studies
 
 Five values taken from two peer-reviewed papers (page numbers in `examples/mexico_city.yaml`), compared

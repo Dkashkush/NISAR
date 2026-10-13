@@ -195,25 +195,47 @@ def choose_checks(n: int):
         if gnss and st.checkbox("Use my own table of station velocities instead (CSV)"):
             gnss_csv = st.file_uploader("CSV with columns site, lon, lat, up_mm_yr, up_sigma_mm_yr", type=["csv"])
     with c2:
-        pub = st.file_uploader("Compare with a published velocity map (optional)", type=["tif", "tiff", "nc"],
-                               help="For example EGMS (Europe), LiCSAR/COMET or OPERA velocity maps, or data "
-                                    "from a paper.")
-        pub_spec = None
-        if pub is not None:
+        from sarcompare.validate import egms_defaults
+
+        files = st.file_uploader("Compare with published velocity maps (optional)", type=["tif", "tiff", "nc"],
+                                 accept_multiple_files=True,
+                                 help="For example EGMS Ortho tiles (Europe: the vertical 'U' and east-west 'E' "
+                                      "files are recognised automatically), LiCSAR/COMET or OPERA velocity maps, "
+                                      "or data from a paper.")
+        with st.expander("Where do I get EGMS maps? (Europe)"):
+            st.markdown("1. Open [egms.land.copernicus.eu](https://egms.land.copernicus.eu) and sign in (free EU "
+                        "Login).\n2. Choose the **Ortho** product, the most recent period, and the 100 km tile "
+                        "that covers your area.\n3. Download the **vertical (U)** and, if you like, the "
+                        "**east-west (E)** files, unzip them, and upload the `.tiff` files here.\n\nEGMS is made "
+                        "from Sentinel-1 by the EU Copernicus programme and calibrated with GNSS, so it is an "
+                        "independent check. Its periods end before NISAR's start, which is fine for steady motion.")
+        pub = []
+        manual = [f for f in files or [] if not egms_defaults(f.name)]
+        for f in files or []:
+            spec = egms_defaults(f.name)
+            if spec:
+                st.success(f"{f.name}: recognised as {spec['label']}; settings filled in automatically.")
+                pub.append((f, spec))
+        if manual:
+            st.caption("Settings for " + ", ".join(f.name for f in manual) + ":")
             a1, a2 = st.columns(2)
             units = a1.selectbox("Units", ["mm/yr", "cm/yr", "m/yr", "ft/yr", "in/yr",
                                            "mm (total over a period)", "cm (total over a period)",
                                            "ft (total over a period)"])
-            comp = a2.selectbox("Direction", ["vertical", "LOS"],
-                                help="LOS = along the satellite's line of sight (most InSAR velocity maps).")
+            comp = a2.selectbox("Direction", ["vertical", "LOS", "east-west"],
+                                help="LOS = along the satellite's line of sight (most InSAR velocity maps). "
+                                     "east-west maps are compared with this run's east-west maps.")
             years = (st.number_input("Years the map covers", 0.1, 50.0, 1.0, 0.1)
                      if "total" in units else None)
-            sign = st.radio("Positive values mean", ["up / toward satellite", "down / away"], horizontal=True)
+            sign = st.radio("Positive values mean", ["up / toward satellite / east", "down / away / west"],
+                            horizontal=True)
             inc = st.number_input("Incidence angle (°)", 20.0, 50.0, 39.0) if comp == "LOS" else None
             cite = st.text_input("Source / citation", placeholder="e.g. California DWR, TRE ALTAMIRA InSAR, 2025")
-            pub_spec = {"label": Path(pub.name).stem, "units": units.split(" ")[0], "component": comp,
-                        "sign": 1 if sign.startswith("up") else -1, "incidence_deg": inc, "period_years": years,
-                        "citation": cite}
+            for f in manual:
+                pub.append((f, {"label": Path(f.name).stem, "units": units.split(" ")[0], "component": comp,
+                                "sign": 1 if sign.startswith("up") else -1, "incidence_deg": inc,
+                                "period_years": years, "citation": cite}))
+        pub_spec = None
     lit = published_values_editor()
     return gnss, gnss_csv, pub, pub_spec, lit
 
@@ -230,7 +252,7 @@ def published_values_editor() -> list[dict]:
                               "Rate (mm/yr)": pd.Series(dtype="float"), "Direction": pd.Series(dtype="str"),
                               "Reported as": pd.Series(dtype="str"), "Period": pd.Series(dtype="str")})
         table = st.data_editor(
-            empty, num_rows="dynamic", use_container_width=True, key="lit_table",
+            empty, num_rows="dynamic", width="stretch", key="lit_table",
             column_config={
                 "Citation": st.column_config.TextColumn(help="e.g. Smith et al. (2021), Journal, volume"),
                 "Rate (mm/yr)": st.column_config.NumberColumn(min_value=0.0, help="Size of the motion"),
@@ -311,8 +333,8 @@ def build_config(mode, bbox, period, checks, token, adv, local_dirs) -> Config:
         cfg.earthdata_token = token or None  # per session; never os.environ (shared by all users of a server)
     if gnss and gnss_csv is not None:
         cfg.gnss = save_upload(gnss_csv)
-    if pub is not None:
-        cfg.published_maps = list(cfg.published_maps) + [{"path": save_upload(pub), **pub_spec}]
+    if pub:
+        cfg.published_maps = list(cfg.published_maps) + [{"path": save_upload(f), **spec} for f, spec in pub]
     if lit:
         cfg.published_values = list(cfg.published_values) + lit
     if ONLINE:
@@ -368,7 +390,7 @@ def run_pipeline(cfg: Config, search_only: bool):
         if rows:
             st.success(f"Found {len(p.result.nisar_products)} NISAR and {len(p.result.s1_products)} Sentinel-1 image "
                        f"pairs (about {sum(r['size_mb'] or 0 for r in rows) / 1000:.1f} GB to download).")
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+            st.dataframe(rows, width="stretch", hide_index=True)
         else:
             st.warning("No usable image pairs were found for this area and period. See Help & FAQ.")
     return result
@@ -400,32 +422,36 @@ def show_results(res):
     st.caption("Switch layers with the box at the top right. Click markers for details. Red = sinking, "
                "blue = rising, no colour = no reliable data.")
     # Display-only map: plain embedded HTML is more robust than the two-way map component here.
-    import streamlit.components.v1 as components
-    components.html(results_map(res).get_root().render(), height=580)
+    html = results_map(res).get_root().render()  # built by the app; user text in it is escaped
+    if hasattr(st, "iframe"):  # st.components.v1.html is being removed from Streamlit
+        st.iframe(html, height=580)
+    else:
+        import streamlit.components.v1 as components
+        components.html(html, height=580)
     if c.hotspots:
         with st.expander(f"Moving areas ({len(c.hotspots)})", expanded=True):
             st.dataframe([{"Detected by": h.sensor, "Latitude": round(h.lat, 4), "Longitude": round(h.lon, 4),
                            "Area (km²)": round(h.area_km2, 1), "Peak (mm/yr)": round(h.peak_mm_yr),
                            "Seen by the other satellite": {"yes": "Yes", "no": "No",
                                                            "no data": "No data there"}[h.seen_by_other]}
-                          for h in c.hotspots], hide_index=True, use_container_width=True)
+                          for h in c.hotspots], hide_index=True, width="stretch")
 
     st.markdown("#### More detail")
     tabs = st.tabs(["⬇️ Download", "Side by side", "Agreement", "Checks", "Data used", "All notes"])
     with tabs[1]:
-        st.image(res.figures["rate_maps"]["light"], use_container_width=True)
+        st.image(res.figures["rate_maps"]["light"], width="stretch")
         st.caption("Left: NISAR. Middle: Sentinel-1. Right: their difference. Grey = no reliable data.")
         if "east_west" in res.figures:
-            st.image(res.figures["east_west"]["light"], use_container_width=True)
+            st.image(res.figures["east_west"]["light"], width="stretch")
             st.caption("Sideways motion, measured by combining passes from the north-going (ascending) and "
                        "south-going (descending) orbits. Around a sinking area the ground often also moves toward "
                        "its centre. Grey = seen from one direction only.")
-        st.image(res.figures["coherence_maps"]["light"], use_container_width=True)
+        st.image(res.figures["coherence_maps"]["light"], width="stretch")
         st.caption("Coherence = how stable the radar signal is between visits. Dark = good. Vegetation usually "
                    "lowers it, much more for Sentinel-1 than for NISAR.")
     with tabs[2]:
         col, txt = st.columns([1, 1], gap="large")
-        col.image(res.figures["scatter"]["light"], use_container_width=True)
+        col.image(res.figures["scatter"]["light"], width="stretch")
         txt.markdown("Each dot cloud compares the two satellites pixel by pixel. If they agreed perfectly, "
                      "everything would sit on the dashed 1:1 line.")
         show_notes([n for n in res.notes if n.stage == "compare"], txt)
@@ -435,7 +461,7 @@ def show_results(res):
             st.info("No extra checks were selected. Turn on 'Compare with GNSS ground stations'.")
         if "gnss" in res.figures:
             col, txt = st.columns([1, 1], gap="large")
-            col.image(res.figures["gnss"]["light"], use_container_width=True)
+            col.image(res.figures["gnss"]["light"], width="stretch")
             show_notes(vnotes, txt)
             from .validate import station_rate
 
@@ -445,11 +471,11 @@ def show_results(res):
                            "Sentinel-1 (mm/yr)": round(s.insar.get("Sentinel-1", float("nan")), 1),
                            "GNSS, Sentinel-1 dates": round(station_rate(s, "Sentinel-1"), 1),
                            "GNSS long-term (mm/yr)": round(s.up_mm_yr, 1)}
-                          for s in res.gnss.stations], hide_index=True, use_container_width=True)
+                          for s in res.gnss.stations], hide_index=True, width="stretch")
         else:
             show_notes(vnotes)
         for k in range(len(res.published)):
-            st.image(res.figures[f"published_{k}"]["light"], use_container_width=True)
+            st.image(res.figures[f"published_{k}"]["light"], width="stretch")
         if res.literature:
             st.markdown("**Published studies**")
             names = {"consistent": "✓ consistent", "differs": "! differs", "no data": "no data",
@@ -462,13 +488,13 @@ def show_results(res):
                            "NISAR check": names.get(c.verdict.get("NISAR"), ""),
                            "Sentinel-1 (mm/yr)": round(c.insar.get("Sentinel-1", float("nan")), 0),
                            "Sentinel-1 check": names.get(c.verdict.get("Sentinel-1"), "")}
-                          for c in res.literature], hide_index=True, use_container_width=True)
+                          for c in res.literature], hide_index=True, width="stretch")
             st.caption("Vertical rates, negative = sinking. Differences often come from different periods: "
                        "subsidence speeds up in droughts and slows after wet years.")
     with tabs[4]:
-        st.image(res.figures["timeline"]["light"], use_container_width=True)
+        st.image(res.figures["timeline"]["light"], width="stretch")
         st.dataframe([p.to_row() for p in res.nisar_products + res.s1_products], hide_index=True,
-                     use_container_width=True)
+                     width="stretch")
     with tabs[5]:
         for stage, title in STAGES.items():
             notes = [n for n in res.notes if n.stage == stage]
@@ -518,8 +544,8 @@ def page_explore():
 
     step(n_next, "Run")
     b1, b2, _ = st.columns([1, 1, 2])
-    run = b1.button("▶ Run analysis", type="primary", use_container_width=True)
-    check = b2.button("Check available data", use_container_width=True, disabled=mode != MODE_REAL,
+    run = b1.button("▶ Run analysis", type="primary", width="stretch")
+    check = b2.button("Check available data", width="stretch", disabled=mode != MODE_REAL,
                       help="Search only, without downloading, to see what exists for your area and dates.")
     if run or check:
         problem = None

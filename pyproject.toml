@@ -26,7 +26,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-app = ["streamlit>=1.46", "folium>=0.17", "streamlit-folium>=0.22"]
+app = ["streamlit>=1.50", "folium>=0.17", "streamlit-folium>=0.22"]
 dev = ["pytest>=7"]
 
 [project.scripts]

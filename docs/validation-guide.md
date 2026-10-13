@@ -17,11 +17,26 @@ Geodetic Laboratory and fits velocities **over the same period as the satellites
 ## 2. Published velocity maps: where to find them
 | Region | Source | Notes for the app |
 |---|---|---|
-| Europe | European Ground Motion Service (EGMS), Copernicus | Use the *Ortho* vertical product: vertical, mm/yr, positive = up |
+| Europe | European Ground Motion Service (EGMS), Copernicus | Use the *Ortho* tiles. The vertical (`_U_`) and east-west (`_E_`) files are recognised by name and set up automatically; the east-west file is compared with the app's east-west map when both orbit directions were used |
 | Worldwide (selected frames) | COMET LiCSAR / LiCSBAS portal (University of Leeds) | Usually LOS velocity in mm/yr; enter the incidence angle |
 | North America | NASA OPERA DISP-S1 (ASF) | LOS displacement; convert to a velocity first, or use it as the Sentinel-1 source |
 | California | California Department of Water Resources (DWR), InSAR subsidence data (TRE ALTAMIRA), on the California Natural Resources Agency open-data portal | Vertical displacement, usually in **feet** over a stated period: choose *ft (total over a period)* and enter the years |
 | Any | Supplementary data of papers (journal sites, Zenodo, PANGAEA) | Check units, sign and whether values are vertical or LOS |
+
+### EGMS step by step (Europe)
+1. Open <https://egms.land.copernicus.eu> and sign in with a free EU Login account.
+2. Choose the **Ortho** product (vertical and east-west on a 100 m grid, calibrated with GNSS), the most recent
+   period, and the 100 km tile that covers your area. The portal's menus change from time to time; look for the
+   Ortho/Level-3 product.
+3. Download the **U** (vertical) and **E** (east-west) files, unzip them, and upload the `.tiff` files in the app
+   (*Compare with published velocity maps*), or list them under `published_maps` in a config file, e.g.
+   `- path: data/EGMS_L3_E32N26_100km_U_2019_2023_1.tiff`. Nothing else is needed: units, sign, period and
+   citation come from the file name.
+4. EGMS periods end before NISAR's start (2025). For steady motion that is fine; for seasonal or accelerating
+   motion, expect honest differences.
+
+EGMS is processed from Sentinel-1, but independently of this app (different software, reference and corrections),
+so agreement with it is meaningful, and disagreement is worth a look.
 
 ## 3. Rates from papers: doing it properly
 1. **Take numbers only from the paper itself** (text, tables or figures with stated values), not from news

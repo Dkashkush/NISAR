@@ -77,3 +77,37 @@ def test_published_peak_is_compared_with_the_fastest_pixels():
     median, peak = validate_literature([common, {**common, "stat": "peak"}], [rm])
     assert peak.insar["NISAR"] < -280 and peak.verdict["NISAR"] == "consistent"
     assert median.insar["NISAR"] > -200 and median.verdict["NISAR"] == "differs"  # a median is not a peak
+
+
+def test_egms_tiles_are_recognised_and_east_west_is_compared(demo_cfg, tmp_path):
+    """EGMS Ortho tiles: settings come from the file name; an east-west tile is compared with east-west maps."""
+    import shutil
+    from dataclasses import replace
+
+    import numpy as np
+    import rioxarray
+
+    from sarcompare.pipeline import Pipeline
+    from sarcompare.validate import egms_defaults
+
+    assert egms_defaults("EGMS_L3_E32N26_100km_U_2019_2023_1.tiff")["component"] == "vertical"
+    e = egms_defaults("x/EGMS_L3_E32N26_100km_E_2019_2023_1.tiff")
+    assert e["component"] == "east-west" and e["period"] == "2019-2023" and "EGMS" in e["citation"]
+    assert egms_defaults("other_map.tif") == {}
+
+    src = demo_cfg.published_maps[0]["path"]
+    up = tmp_path / "EGMS_L3_E99N99_100km_U_2019_2023_1.tiff"
+    shutil.copy(src, up)
+    da = rioxarray.open_rasterio(src, masked=True)
+    east = tmp_path / "EGMS_L3_E99N99_100km_E_2019_2023_1.tiff"
+    da.copy(data=np.zeros_like(da.values)).rio.to_raster(east)  # the demo has no sideways motion
+    cfg = replace(demo_cfg, name="egms", published_maps=[{"path": str(up)}, {"path": str(east)}],
+                  published_values=[])
+    result = Pipeline(cfg, on_event=lambda ev: None).run(download=False)
+    vert, ew = result.published
+    assert vert.label == "EGMS Ortho vertical 2019-2023" and vert.component == "vertical"
+    assert vert.stats["NISAR"].r > 0.7
+    assert ew.component == "east-west" and set(ew.stats) == {"Sentinel-1"}  # only Sentinel-1 has both directions
+    assert abs(ew.stats["Sentinel-1"].bias_mm_yr) < 10
+    report = (cfg.run_dir / "report.html").read_text()
+    assert "European Ground Motion Service" in report

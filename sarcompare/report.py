@@ -112,7 +112,10 @@ def _references(r) -> str:
                  "(2019). Small baseline InSAR time series analysis: unwrapping error correction and noise "
                  "reduction. <i>Computers &amp; Geosciences</i>, 133, 104331.")
     seen = set()
-    for spec in cfg.published_maps:
+    from .validate import egms_defaults
+
+    for raw in cfg.published_maps:
+        spec = {**egms_defaults(raw.get("path", "")), **raw}
         cite = str(spec.get("citation") or "").strip()
         if cite and cite not in seen:
             seen.add(cite)
