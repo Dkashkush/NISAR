@@ -45,6 +45,7 @@ class Config:
     gnss: str | None = None  # None = off; "NGL" = Nevada Geodetic Lab (auto-download); or path to a CSV table
     gnss_dir: str = "data/gnss"  # cache for NGL files
     gnss_max_stations: int = 30
+    tie_to_gnss: bool = True  # with GNSS and no reference_lonlat: shift each map to match GNSS, making rates absolute
     published_maps: list = field(default_factory=list)  # [{path, label, units, component, sign, incidence_deg,
     #                                                      period_years, citation}]
     published_values: list = field(default_factory=list)  # rates from papers: [{citation, place, lon, lat,

@@ -320,6 +320,10 @@ def validate_published(spec: dict, rates: list[RateMap], ref: Reference, inside:
         pv = pv - np.nanmedian(pv[sel])
         mode = ("referenced like the InSAR maps (median over the shared reference pixels)" if ref.mode == "area"
                 else "referenced to the same point as the InSAR maps")
+        if ref.mode == "gnss":  # the InSAR maps were then shifted to match GNSS: shift the published map alike
+            tie = [np.nanmedian(rm.rate.values[ref.mask]) * 1000 for rm in rates]
+            pv = pv + float(np.mean(tie))
+            mode = "referenced like the InSAR maps (area median, then tied to GNSS)"
     else:
         # published map lacks data at our reference: align by the median offset to the first sensor
         a = rates[0].rate.values * 1000
@@ -406,8 +410,8 @@ def parse_published_value(v: dict) -> dict:
             "period": str(v.get("period", "")).strip()}
 
 
-def validate_literature(values: list[dict], rates: list[RateMap], gnss: GnssValidation | None = None
-                        ) -> list[LiteratureCheck]:
+def validate_literature(values: list[dict], rates: list[RateMap], gnss: GnssValidation | None = None,
+                        tied: bool = False) -> list[LiteratureCheck]:
     """Compare rates reported in published studies with this run, place by place.
 
     InSAR rates here are relative (zero = area median). When the GNSS check produced an offset for a sensor,
@@ -422,8 +426,8 @@ def validate_literature(values: list[dict], rates: list[RateMap], gnss: GnssVali
         for rm in rates:
             val, problem = _rate_in_radius(rm, v["lon"], v["lat"], v["radius_km"])
             stats = gnss.stats.get(rm.sensor) if gnss is not None else None
-            absolute = bool(stats is not None and stats.n >= 2 and math.isfinite(stats.offset_mm_yr))
-            if absolute and math.isfinite(val):
+            absolute = tied or bool(stats is not None and stats.n >= 2 and math.isfinite(stats.offset_mm_yr))
+            if absolute and not tied and math.isfinite(val):
                 val -= stats.offset_mm_yr
             chk.insar[rm.sensor] = val
             chk.absolute[rm.sensor] = absolute

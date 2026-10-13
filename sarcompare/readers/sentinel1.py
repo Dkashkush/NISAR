@@ -17,9 +17,10 @@ import rioxarray
 from pyproj import CRS
 
 from ..aoi import AOI
-from ..notes import WARN, Note
+from ..notes import INFO, WARN, Note
 from ..products import SENTINEL1, WAVELENGTH_S1_C, pair_dates_from_name
-from .base import Interferogram, aoi_slices, apply_fill, decode, make_da, source_name
+from .base import (Interferogram, aoi_slices, apply_fill, component_note, decode, fix_components, make_da,
+                   source_name)
 
 DEFAULT_INCIDENCE = 38.0  # mid-swath for Sentinel-1 IW (range ~30-46°)
 # ARIA GUNW uses the later acquisition as reference, so positive phase = motion toward the satellite.
@@ -59,9 +60,11 @@ def read_aria_gunw(path, aoi: AOI, sign: float | None = None, name: str | None =
         uds = h5[f"{g}/unwrappedPhase"]
         phase = apply_fill(uds[rows, cols], uds.attrs.get("_FillValue"))
         coh = apply_fill(h5[f"{g}/coherence"][rows, cols], h5[f"{g}/coherence"].attrs.get("_FillValue"))
+        pieces = None
         if f"{g}/connectedComponents" in h5:
             cc = h5[f"{g}/connectedComponents"][rows, cols]
             phase = np.where(cc <= 0, np.nan, phase)
+            phase, pieces = fix_components(phase, cc, None)  # keep the largest piece (see fix_components)
         wl_path = _first(h5, "/science/radarMetaData/wavelength")
         wavelength = float(np.asarray(h5[wl_path][()]).ravel()[0]) if wl_path else WAVELENGTH_S1_C
         inc_path = _first(h5, "/science/grids/imagingGeometry/incidenceAngle")
@@ -75,6 +78,10 @@ def read_aria_gunw(path, aoi: AOI, sign: float | None = None, name: str | None =
         direction = "ASCENDING"
     elif "-D-" in name_upper:
         direction = "DESCENDING"
+    if pieces is not None:
+        note = component_note("Sentinel-1", date1, date2, pieces, aligned=False)
+        if note:
+            notes.append(note)
     s = ARIA_PHASE_SIGN if sign is None else sign
     los = s * phase * wavelength / (4 * np.pi)
     return Interferogram(
@@ -113,8 +120,32 @@ def read_opera_disp(path, aoi: AOI, sign: float | None = None, name: str | None 
         coh_name = _first(h5, "temporal_coherence", "estimated_phase_quality", "phase_similarity")
         coh = apply_fill(h5[coh_name][rows, cols], h5[coh_name].attrs.get("_FillValue")) if coh_name \
             else np.full_like(disp, np.nan)
+        # same corrections as opera-utils applies by default (rebase_reference): ionosphere and solid-earth tide
+        applied = []
+        for corr, label in (("corrections/ionospheric_delay", "ionospheric delay"),
+                            ("corrections/solid_earth_tide", "solid-earth tide")):
+            if corr in h5 and h5[corr].shape == dds.shape:
+                disp = disp - np.nan_to_num(apply_fill(h5[corr][rows, cols], h5[corr].attrs.get("_FillValue")))
+                applied.append(label)
         if "recommended_mask" in h5:
             disp = np.where(h5["recommended_mask"][rows, cols] == 0, np.nan, disp)
+        pieces = None
+        if "connected_component_labels" in h5:
+            cc = h5["connected_component_labels"][rows, cols]
+            cc_fill = h5["connected_component_labels"].attrs.get("_FillValue")
+            if cc_fill is not None:
+                cc = np.where(cc == np.asarray(cc_fill).ravel()[0], 0, cc)
+            finite = np.isfinite(disp)
+            # label 0 = not unwrapped; only trust the labels when they cover most of the valid pixels
+            if finite.any() and np.count_nonzero(finite & (cc > 0)) >= 0.5 * np.count_nonzero(finite):
+                disp, pieces = fix_components(np.where(cc == 0, np.nan, disp), cc, None)
+    if applied:
+        notes.append(Note("load", INFO, f"Sentinel-1 {date1}→{date2}: removed the {' and '.join(applied)} "
+                                        "corrections supplied in the OPERA product."))
+    if pieces is not None:
+        note = component_note("Sentinel-1", date1, date2, pieces, aligned=False)
+        if note:
+            notes.append(note)
     s = OPERA_SIGN if sign is None else sign
     return Interferogram(
         sensor=SENTINEL1, product_type="DISP-S1", name=fname, date1=date1, date2=date2,

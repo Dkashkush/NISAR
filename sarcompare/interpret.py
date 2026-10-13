@@ -51,7 +51,19 @@ def stack_notes(rm: RateMap) -> list[Note]:
     return notes
 
 
-def comparison_notes(c: Comparison, a: RateMap, b: RateMap) -> list[Note]:
+def motion_words(peak_mm_yr: float, mode: str = "area") -> str:
+    """How to describe a moving area, depending on what zero means (see Reference.mode)."""
+    if mode == "gnss":
+        return "subsiding / moving away" if peak_mm_yr < 0 else "uplifting / moving toward the satellite"
+    if mode == "point":
+        return ("moving down relative to your reference point" if peak_mm_yr < 0
+                else "moving up relative to your reference point")
+    return ("moving down faster than the area as a whole" if peak_mm_yr < 0
+            else "moving up relative to the area as a whole (it may still be sinking, only more slowly)")
+
+
+def comparison_notes(c: Comparison, a: RateMap, b: RateMap, mode: str = "area") -> list[Note]:
+    """``mode`` is the reference mode: "area" (zero = area median), "point" or "gnss" (absolute)."""
     A, B = a.sensor, b.sensor
     notes: list[Note] = []
     add = lambda lvl, text: notes.append(Note("compare", lvl, text))  # noqa: E731
@@ -113,7 +125,7 @@ def comparison_notes(c: Comparison, a: RateMap, b: RateMap) -> list[Note]:
         add(INFO, "No coherent area moves faster than the detection threshold. The AOI appears stable at the "
                   "precision these pairs allow.")
     for h in c.hotspots:
-        kind = "subsiding / moving away" if h.peak_mm_yr < 0 else "uplifting / moving toward the satellite"
+        kind = motion_words(h.peak_mm_yr, mode)
         other = B if h.sensor == A else A
         base = (f"{h.sensor} detects an area {kind}: {h.area_km2:.1f} km² centred at {h.lat:.4f}°N, "
                 f"{h.lon:.4f}°E, peak {h.peak_mm_yr:+.0f} mm/yr.")
@@ -131,31 +143,38 @@ def comparison_notes(c: Comparison, a: RateMap, b: RateMap) -> list[Note]:
                   "extraction and aquifer-system compaction. Compare with well-level records and land use.")
 
     # --- Caveats
-    add(INFO, "Caveats: rates are relative to the reference point. The vertical projection assumes no "
+    zero = {"gnss": "rates are tied to GNSS, so their accuracy depends on the stations used",
+            "point": "rates are relative to your reference point"}.get(mode, "rates are relative to the area median")
+    add(INFO, f"Caveats: {zero}. The vertical projection assumes no "
               "horizontal motion. Combining ascending and descending tracks separates vertical from east–west "
               "motion. Nonlinear (e.g. seasonal) motion is averaged out by rate stacking.")
     return notes
 
 
-def gnss_notes(gv, rates: list[RateMap]) -> list[Note]:
-    """Interpret the InSAR-vs-GNSS comparison."""
+def gnss_notes(gv, rates: list[RateMap], tied: bool = False) -> list[Note]:
+    """Interpret the InSAR-vs-GNSS comparison. ``tied``: the maps were already shifted to match these stations."""
     notes: list[Note] = []
     add = lambda lvl, text: notes.append(Note("validate", lvl, text))  # noqa: E731
     if not gv.stations:
         add(WARN, f"No GNSS stations with usable data were found inside the AOI ({gv.source}). Enlarge the AOI "
                   "or supply a CSV of published station velocities.")
         return notes
+    how = ("The maps were tied to these stations (one constant shift per satellite), so the errors below measure "
+           "how well the pattern matches, not the overall level." if tied else
+           "One constant offset per sensor is removed because InSAR rates are relative to the reference point.")
     add(INFO, f"{len(gv.stations)} GNSS station(s) from {gv.source}. GNSS measures absolute 3-D motion at a point, "
-              "independently of radar, so it is the standard benchmark for InSAR. One constant offset per sensor "
-              "is removed because InSAR rates are relative to the reference point.")
+              f"independently of radar, so it is the standard benchmark for InSAR. {how}")
     for rm in rates:
         s = gv.stats.get(rm.sensor)
         if s is None or s.n == 0:
             add(WARN, f"{rm.sensor}: no GNSS station falls on a pixel with valid {rm.sensor} data.")
             continue
         if s.n < 2:
-            add(INFO, f"{rm.sensor}: only 1 station with data, so only the offset "
-                      f"({s.offset_mm_yr:+.1f} mm/yr) can be estimated. At least 2 are needed to measure errors.")
+            st = next(st for st in gv.stations if math.isfinite(st.insar.get(rm.sensor, float("nan"))))
+            what = ("the map was tied to it, so it cannot also test it" if tied
+                    else f"only the offset ({s.offset_mm_yr:+.1f} mm/yr) can be estimated")
+            add(INFO, f"{rm.sensor}: only 1 station with data ({st.site}, GNSS vertical {st.up_mm_yr:+.1f} mm/yr "
+                      f"over {st.period}); {what}. At least 2 are needed to measure errors.")
             continue
         noise = rm.noise_rate * 1000 if math.isfinite(rm.noise_rate) else float("nan")
         expected = math.hypot(noise, 2.0) if math.isfinite(noise) else float("nan")
@@ -170,7 +189,7 @@ def gnss_notes(gv, rates: list[RateMap]) -> list[Note]:
                              "vertical projection ignores it), GNSS and InSAR periods that differ, very local "
                              "motion of the GNSS monument, or residual atmosphere or ionosphere.")
     offsets = {k: v.offset_mm_yr for k, v in gv.stats.items() if v.n >= 2 and math.isfinite(v.offset_mm_yr)}
-    if offsets and all(abs(o) > 8 for o in offsets.values()):
+    if offsets and not tied and all(abs(o) > 8 for o in offsets.values()):
         mean_off = float(np.mean(list(offsets.values())))
         add(WARN, f"Both sensors need an offset of about {mean_off:+.0f} mm/yr to match GNSS. That offset is the "
                   f"motion of the reference point itself: it is probably {'subsiding' if mean_off > 0 else 'rising'}"
@@ -225,13 +244,21 @@ def plain_summary(result) -> list[tuple[str, str]]:
             moving.append(h)
     if moving:
         h = moving[0]
-        verb = "sinking" if h.peak_mm_yr < 0 else "rising"
+        mode = result.reference.mode if getattr(result, "reference", None) is not None else "area"
+        if mode == "gnss":
+            verb = "sinking" if h.peak_mm_yr < 0 else "rising"
+        else:
+            whom = "your reference point" if mode == "point" else "the area as a whole"
+            verb = f"{'sinking' if h.peak_mm_yr < 0 else 'rising'} relative to {whom}"
         who = {"yes": "Both satellites see it.",
                "no data": f"Only {h.sensor} can measure there (the other satellite loses the signal).",
                "no": f"Only {h.sensor} sees it, so treat it with caution."}[h.seen_by_other]
         out.append((GOOD if h.seen_by_other == "yes" else INFO,
                     f"The ground is {verb} by up to {abs(h.peak_mm_yr) / 10:.1f} cm per year over about "
                     f"{h.area_km2:.0f} km² near {h.lat:.3f}°N, {h.lon:.3f}°E. {who}"))
+        if mode == "area":
+            out.append((INFO, "Zero on the map is the typical motion of the whole area, not stable ground. If the "
+                              "whole area is sinking (as in many farming basins), use GNSS to see absolute rates."))
         if len(moving) > 1:
             out.append((INFO, f"{len(moving) - 1} more moving area(s) found; see the map and the table."))
     else:

@@ -44,11 +44,15 @@ search ─► select pairs ─► download ─► load & crop ─► stack into 
 2. **Download** with your NASA Earthdata login. Files already present are reused.
 3. **Load** each pair. Unwrapped phase is converted to line-of-sight displacement, with each product's
    sign convention handled so that positive always means toward the satellite. Pixels that could not
-   be unwrapped are masked, and the NISAR ionospheric phase screen is applied.
-4. **Stack** the pairs into a mean rate per sensor, and estimate the rate noise from pair-to-pair scatter.
-   Rates can be projected to vertical.
+   be unwrapped are masked, and the NISAR ionospheric phase screen is applied. Separately unwrapped pieces
+   are lined up by whole cycles (NISAR) or reduced to the largest piece (Sentinel-1, where cycles are too
+   small to line up safely).
+4. **Stack** the pairs into a mean rate per sensor, and estimate the rate noise from pair-to-pair scatter
+   (pixel noise counts once per pair; atmospheric noise counts once per gapless chain, because it cancels
+   on the in-between dates). Rates can be projected to vertical.
 5. **Reference** both maps the same way. Automatic mode uses the median over the pixels valid in both
-   (zero = typical motion of the area). You can also give a known-stable point, such as bedrock or a GNSS
+   (zero = typical motion of the area), then, when GNSS is on, shifts each map to match the GNSS stations,
+   so the rates become absolute. You can also give a known-stable point, such as bedrock or a GNSS
    station.
 6. **Compare** the maps:
    - coverage, and the area only one sensor can measure
@@ -169,7 +173,8 @@ For areas outside ARIA/OPERA coverage (e.g. India), use HyP3 on-demand products 
 | `start`, `end` | Date window. NISAR data start after its July 2025 launch |
 | `coherence_threshold` | Ignore pixels below this coherence in each pair (default 0.35) |
 | `max_pairs`, `min_span_days`, `max_span_days` | How many pairs, and how long each may be |
-| `reference_lonlat` | A point you know is stable (bedrock, a GNSS station). Empty = area median |
+| `reference_lonlat` | A point you know is stable (bedrock, a GNSS station). Empty = area median, tied to GNSS if on |
+| `tie_to_gnss` | With GNSS on and no reference point: make the rates absolute by matching GNSS (default true) |
 | `gnss` | `NGL` (automatic GNSS), a path to a CSV (`site,lon,lat,up_mm_yr,up_sigma_mm_yr`), or empty |
 | `published_maps` | List of `{path, label, units, component: vertical/LOS, sign, incidence_deg, period}` |
 | `project_to_vertical` | LOS → vertical, assuming no horizontal motion |
@@ -201,9 +206,10 @@ InSAR should always be checked against something independent. The app supports t
    **same period as the InSAR**;
 4. samples both InSAR maps at each station.
 
-InSAR is relative, so one constant offset per sensor is removed. The app then reports RMSE and correlation,
-and says whether the misfit is within what the InSAR noise predicts. If both sensors need a large offset,
-the reference area itself is moving, and the app tells you so.
+InSAR is relative, so one constant offset per sensor is removed: by default the maps themselves are shifted
+to match the stations, which makes every rate absolute (important in basins where the whole area sinks, such
+as the Central Valley). The app then reports RMSE and correlation, and says whether the misfit is within what
+the InSAR noise predicts. With a single station the map rests on that one point, and the app says so.
 
 **Published GNSS tables.** Many papers list station velocities. Put them in a CSV
 (`site,lon,lat,up_mm_yr,up_sigma_mm_yr`) and set `gnss: that.csv`.
@@ -254,7 +260,8 @@ pipeline.
 helps decide where to look more closely. Whether or when something will fail needs monitoring, field work
 and the responsible authorities.
 
-- **Rates are relative** to the reference point.
+- **Rates are relative** to the reference point, unless they are tied to GNSS (then they are only as good as
+  the stations).
 - **Vertical projection assumes no horizontal motion.** Landslides and faults also move sideways. Combine
   ascending and descending tracks to separate the two.
 - **Short time spans are noisy.** Tropospheric water vapour adds centimetres per acquisition. The report

@@ -540,8 +540,8 @@ def page_learn():
                 "- ⬜ **Pale**: little or no motion.\n"
                 "- **No colour**: no reliable measurement (water, dense vegetation for Sentinel-1, steep slopes, "
                 "or too few good images).")
-    c2.markdown("- **Motion is relative.** Zero means the typical motion of your area. Absolute values need a "
-                "stable reference, such as a GNSS station.\n"
+    c2.markdown("- **Motion is relative** unless GNSS is on. Without GNSS, zero means the typical motion of your "
+                "area; with GNSS stations in the area, the maps are tied to them and zero means no motion.\n"
                 "- **Speeds are averages** over your time period; seasonal ups and downs are averaged out.\n"
                 "- **'Vertical'** assumes the ground moves only up and down. Landslides also move sideways.")
     st.markdown("### What usually causes ground motion?")

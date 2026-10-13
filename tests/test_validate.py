@@ -52,6 +52,10 @@ def test_demo_validation_and_published_conversions(demo_cfg, tmp_path):
     g = result.gnss
     assert g is not None and g.stats["NISAR"].n >= 6
     assert g.stats["NISAR"].rmse_mm_yr < 15 and g.stats["NISAR"].r > 0.9
+    # maps are tied to GNSS (absolute), and the predicted noise matches the real error against GNSS
+    assert result.reference.mode == "gnss" and abs(g.stats["NISAR"].offset_mm_yr) < 1
+    noise = result.nisar_rate.noise_rate * 1000
+    assert 0.4 * g.stats["NISAR"].rmse_mm_yr < noise < 2.5 * g.stats["NISAR"].rmse_mm_yr
     pv = result.published[0]
     assert pv.stats["NISAR"].r > 0.7 and pv.stats["Sentinel-1"].r > 0.7
 
@@ -75,3 +79,13 @@ def test_point_reference(demo_cfg):
     assert ref.mode == "point" and abs(ref.lon - 78.0) < 0.01
     v = result.nisar_rate.rate.values[ref.mask]
     assert abs(np.nanmedian(v)) < 1e-6
+
+
+def test_independent_pieces_counts_gapless_chains():
+    from types import SimpleNamespace as NS
+    from sarcompare.processing import independent_pieces
+
+    d = [date(2026, 1, 1) + timedelta(days=12 * k) for k in range(6)]
+    chain = [NS(date1=a, date2=b) for a, b in zip(d, d[1:])]
+    assert independent_pieces(chain) == 1
+    assert independent_pieces(chain[:2] + chain[3:]) == 2

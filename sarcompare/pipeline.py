@@ -7,6 +7,7 @@ show results as they come in.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -23,7 +24,7 @@ from .processing import (RateMap, Reference, aoi_mask, apply_reference, choose_r
                          reference_notes, stack_rates, to_vertical)
 from .products import NISAR, SENTINEL1, Product
 from .readers import read_product
-from .search import overlap_notes, scan_local, search_nisar, search_sentinel1, select_pairs
+from .search import date_range, overlap_notes, scan_local, search_nisar, search_sentinel1, select_pairs
 
 
 @dataclass
@@ -88,10 +89,15 @@ class Pipeline:
         else:
             nisar_all = search_nisar(self.aoi, cfg.start, cfg.end, cfg.nisar_flight_direction)
         notes: list[Note] = []
+        # Seasonal motion is large (e.g. groundwater pumping), so each satellite's pairs are chosen to overlap the
+        # other's time window: Sentinel-1 against all NISAR dates, NISAR against the chosen Sentinel-1 window,
+        # then Sentinel-1 once more against the chosen NISAR window.
+        nisar_dates = date_range(nisar_all)
+        s1_span = cfg.max_span_days
         if cfg.s1_source == "LOCAL":
             s1_all = scan_local(cfg.s1_dir, SENTINEL1)
-            s1, n2 = select_pairs(s1_all, cfg.max_pairs, cfg.min_span_days, cfg.max_span_days,
-                                  cfg.s1_flight_direction)
+            s1, n2 = select_pairs(s1_all, cfg.max_pairs, cfg.min_span_days, s1_span, cfg.s1_flight_direction,
+                                  target=nisar_dates)
         else:
             # Try each source in turn and keep the first that yields usable pairs (not merely any products).
             s1_all, s1, n2 = [], [], []
@@ -99,8 +105,9 @@ class Pipeline:
             for source in self._s1_sources():
                 found = search_sentinel1(self.aoi, source, cfg.start, cfg.end, cfg.s1_flight_direction)
                 span = max(cfg.max_span_days, 730) if source == "OPERA_DISP_S1" else cfg.max_span_days
-                sel, sel_notes = select_pairs(found, cfg.max_pairs, cfg.min_span_days, span, cfg.s1_flight_direction)
-                s1_all, s1, n2 = found, sel, sel_notes
+                sel, sel_notes = select_pairs(found, cfg.max_pairs, cfg.min_span_days, span, cfg.s1_flight_direction,
+                                              target=nisar_dates)
+                s1_all, s1, n2, s1_span = found, sel, sel_notes, span
                 if sel:
                     if cfg.s1_source == "AUTO":
                         notes.append(Note("search", INFO, f"Sentinel-1 source chosen automatically: {names[source]}."))
@@ -110,7 +117,10 @@ class Pipeline:
                                                       "for this area and period; trying the next source."))
         notes.insert(0, Note("search", INFO, f"Found {len(nisar_all)} NISAR and {len(s1_all)} Sentinel-1 products."))
         nisar, n1 = select_pairs(nisar_all, cfg.max_pairs, cfg.min_span_days, cfg.max_span_days,
-                                 cfg.nisar_flight_direction)
+                                 cfg.nisar_flight_direction, target=date_range(s1))
+        if nisar and s1:
+            s1, n2 = select_pairs(s1_all, cfg.max_pairs, cfg.min_span_days, s1_span, cfg.s1_flight_direction,
+                                  target=date_range(nisar))
         notes += n1 + n2 + overlap_notes(nisar, s1, cfg.start)
         self.result.nisar_products, self.result.s1_products = nisar, s1
         self.emit("search", f"Selected {len(nisar)} NISAR and {len(s1)} Sentinel-1 pairs", notes)
@@ -207,16 +217,71 @@ class Pipeline:
                       _dedupe(load_notes) + stack_notes(rm))
         self.result.nisar_rate, self.result.s1_rate = rates[NISAR], rates[SENTINEL1]
 
+    def _gnss_stations(self):
+        """GNSS stations (stations, skipped, source), fetched once and shared by the reference and validation."""
+        if getattr(self, "_gnss_cache", None) is None:
+            from . import validate as V
+
+            cfg, r = self.cfg, self.result
+            if str(cfg.gnss).upper() == "NGL":
+                rates = [r.nisar_rate, r.s1_rate]
+                start, end = min(rm.date_start for rm in rates), max(rm.date_end for rm in rates)
+                self.emit("validate", "Fetching GNSS stations from the Nevada Geodetic Laboratory")
+                stations, skipped = V.ngl_stations(
+                    self.aoi, start, end, cfg.gnss_dir, cfg.gnss_max_stations,
+                    progress=lambda i, n, site: self.on_event(Event("validate", f"GNSS {i + 1}/{n}: {site}",
+                                                                    progress=i / max(n, 1))))
+                self._gnss_cache = (stations, skipped, "Nevada Geodetic Laboratory, IGS20")
+            else:
+                self._gnss_cache = (V.csv_stations(cfg.gnss), [], f"table {Path(cfg.gnss).name}")
+        return self._gnss_cache
+
+    def _tie_to_gnss(self, ref: Reference) -> list[Note]:
+        """Shift both area-referenced maps so they match GNSS (absolute rates). Both or neither are tied."""
+        from .validate import sample_rate
+
+        a, b = self.result.nisar_rate, self.result.s1_rate
+        try:
+            stations, _, source = self._gnss_stations()
+        except Exception as e:  # network or file problems: keep the area reference
+            return [Note("reference", WARN, f"Could not fetch GNSS to make the rates absolute "
+                                            f"({type(e).__name__}: {e}); zero stays the area median.")]
+        ties = {}
+        for rm in (a, b):
+            d = [sample_rate(rm, st.lon, st.lat) - st.up_mm_yr for st in stations]
+            d = [v for v in d if math.isfinite(v)]
+            if d:
+                ties[rm.sensor] = (float(np.median(d)), len(d))
+        if len(ties) < 2:
+            return [Note("reference", INFO, "No GNSS station has valid data from both satellites, so the rates stay "
+                                            "relative (zero = the area median).")]
+        for rm in (a, b):
+            rm.rate = rm.rate - ties[rm.sensor][0] / 1000
+        ref.mode = "gnss"
+        n = min(k for _, k in ties.values())
+        lvl = INFO if n >= 2 else WARN
+        detail = ", ".join(f"{s} {off:+.0f} mm/yr ({k} station{'s' if k > 1 else ''})" for s, (off, k) in ties.items())
+        text = (f"The rates are tied to GNSS ({source}), so they are absolute: zero means no vertical motion. "
+                f"Shift applied to match the GNSS stations: {detail}; the shift is the motion of the area median "
+                "itself, with the sign reversed.")
+        if n < 2:
+            text += (" With a single station the whole map rests on that one point; its own local motion or noise "
+                     "shifts every value.")
+        return [Note("reference", lvl, text)]
+
     def reference_and_compare(self) -> Comparison:
         a, b = self.result.nisar_rate, self.result.s1_rate
         ref = choose_reference(a, b, self.cfg.reference_lonlat, self.result.inside)
         apply_reference(a, ref)
         apply_reference(b, ref)
+        notes = reference_notes(ref, a, b)
+        if ref.mode == "area" and self.cfg.gnss and self.cfg.tie_to_gnss:
+            notes += self._tie_to_gnss(ref)
         self.result.reference = ref
-        self.emit("reference", "Put both rate maps on a common reference", reference_notes(ref, a, b))
+        self.emit("reference", "Put both rate maps on a common reference", notes)
         c = compare(a, b, self.result.inside)
         self.result.comparison = c
-        self.emit("compare", "Compared NISAR and Sentinel-1", comparison_notes(c, a, b))
+        self.emit("compare", "Compared NISAR and Sentinel-1", comparison_notes(c, a, b, ref.mode))
         return c
 
     def validate(self) -> None:
@@ -228,19 +293,9 @@ class Pipeline:
         if cfg.gnss:
             notes: list[Note] = []
             try:
-                if str(cfg.gnss).upper() == "NGL":
-                    start = min(rm.date_start for rm in rates)
-                    end = max(rm.date_end for rm in rates)
-                    self.emit("validate", "Fetching GNSS stations from the Nevada Geodetic Laboratory")
-                    stations, skipped = V.ngl_stations(
-                        self.aoi, start, end, cfg.gnss_dir, cfg.gnss_max_stations,
-                        progress=lambda i, n, site: self.on_event(Event("validate", f"GNSS {i + 1}/{n}: {site}",
-                                                                        progress=i / max(n, 1))))
-                    source = "Nevada Geodetic Laboratory, IGS20"
-                else:
-                    stations, skipped, source = V.csv_stations(cfg.gnss), [], f"table {Path(cfg.gnss).name}"
+                stations, skipped, source = self._gnss_stations()
                 r.gnss = V.validate_gnss(stations, rates, source, skipped)
-                notes = gnss_notes(r.gnss, rates)
+                notes = gnss_notes(r.gnss, rates, tied=r.reference is not None and r.reference.mode == "gnss")
             except Exception as e:  # network or file problems must not lose the whole comparison
                 notes = [Note("validate", WARN, f"GNSS validation failed: {type(e).__name__}: {e}")]
             self.emit("validate", "Compared with GNSS", notes)
@@ -254,7 +309,8 @@ class Pipeline:
             self.emit("validate", f"Compared with published map {spec.get('label') or spec.get('path')}", notes)
         if cfg.published_values:
             try:
-                r.literature = V.validate_literature(cfg.published_values, rates, r.gnss)
+                r.literature = V.validate_literature(cfg.published_values, rates, r.gnss,
+                                                     tied=r.reference is not None and r.reference.mode == "gnss")
                 notes = literature_notes(r.literature, rates)
             except Exception as e:
                 notes = [Note("validate", WARN, f"Could not compare with published values: {type(e).__name__}: {e}")]

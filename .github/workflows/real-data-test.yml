@@ -144,6 +144,12 @@ jobs:
               fh.write(text + "\n")
           PY
 
+      - name: 4. Diagnostics (GNSS stations, map statistics)
+        if: always()
+        run: |
+          python scripts/diagnose_run.py "outputs/$SITE" | tee diagnosis.txt
+          { echo "<details><summary>Diagnostics</summary>"; echo; echo '```'; cat diagnosis.txt; echo '```'; echo "</details>"; } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Keep the results
         if: always()
         uses: actions/upload-artifact@v4

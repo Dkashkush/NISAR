@@ -88,3 +88,59 @@ def source_name(source, name: str | None = None) -> str:
     if isinstance(source, (str, Path)):
         return Path(source).name
     return getattr(source, "name", None) or "remote.h5"
+
+
+def fix_components(los: np.ndarray, labels: np.ndarray, cycle: float | None,
+                   min_fraction: float = 0.002) -> tuple[np.ndarray, dict]:
+    """Make the separately unwrapped pieces ("connected components") of one pair consistent.
+
+    Phase unwrapping is reliable within a piece, but each piece can be off from the others by a whole number of
+    cycles. With ``cycle`` (one cycle in the units of ``los``), every piece is shifted by the whole number of
+    cycles that best matches its median to the largest piece. That is safe when the real motion differs by less
+    than half a cycle between pieces during the pair (true for L-band over weeks: half a cycle is ~6 cm). With
+    ``cycle=None`` (C-band, where half a cycle is only ~1.4 cm), only the largest piece is kept. Pieces smaller
+    than ``min_fraction`` of the valid pixels are dropped either way.
+    """
+    from scipy import ndimage
+
+    out = np.array(los, dtype="float32", copy=True)
+    lab = np.where(np.isfinite(out), np.nan_to_num(np.asarray(labels, dtype="float64"), nan=0), 0).astype(np.int64)
+    ids, counts = np.unique(lab[lab > 0], return_counts=True)
+    info = {"pieces": int(ids.size), "shifted": 0, "dropped_fraction": 0.0, "main_fraction": 1.0}
+    if ids.size <= 1:
+        return out, info
+    total = counts.sum()
+    main = int(np.argmax(counts))
+    keep = counts >= max(20, min_fraction * total)
+    shifts = np.zeros(ids.size)
+    if cycle:
+        meds = np.asarray(ndimage.median(out, lab, ids), dtype="float64")
+        shifts = np.round((meds - meds[main]) / cycle) * cycle
+    else:
+        keep[:] = False
+    keep[main], shifts[main] = True, 0.0
+    idx = np.searchsorted(ids, lab)
+    labelled = lab > 0
+    idx = np.where(labelled, idx, 0)
+    out = np.where(labelled & ~keep[idx], np.nan, out - np.where(labelled, shifts[idx], 0)).astype("float32")
+    info.update(shifted=int(np.count_nonzero(shifts[keep])), dropped_fraction=float(counts[~keep].sum() / total),
+                main_fraction=float(counts[main] / total))
+    return out, info
+
+
+def component_note(sensor: str, date1, date2, info: dict, aligned: bool) -> Note | None:
+    """Plain-language note on what fix_components did (None when the pair was unwrapped in one piece)."""
+    from ..notes import INFO, WARN
+
+    if info["pieces"] <= 1:
+        return None
+    head = f"{sensor} {date1}→{date2}: the unwrapped phase comes in {info['pieces']} separately unwrapped pieces"
+    if aligned:
+        text = (f"{head}; {info['shifted']} were shifted by whole cycles to line up with the largest piece "
+                f"({info['main_fraction']:.0%} of the pixels), and {info['dropped_fraction']:.0%} of the pixels "
+                "in tiny pieces were dropped.")
+    else:
+        text = (f"{head}; only the largest ({info['main_fraction']:.0%} of the pixels) is kept, because the others "
+                "may be offset by whole cycles (C-band cycles are too small to line them up safely).")
+    level = WARN if info["dropped_fraction"] > 0.3 else INFO
+    return Note("load", level, text)

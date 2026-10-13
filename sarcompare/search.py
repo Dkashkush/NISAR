@@ -156,26 +156,74 @@ def _local_size_mb(path: Path) -> float:
 
 
 
-def _best_window(chain: list[Product], n: int) -> list[Product]:
-    """The run of ``n`` chain pairs with the fewest gaps, then the longest time span, then the most recent."""
+def _iou(start: date, end: date, target: tuple[date, date] | None) -> float:
+    """Overlap of [start, end] with ``target`` as a fraction of their union (0 when there is no target)."""
+    if not target:
+        return 0.0
+    t0, t1 = target
+    overlap = (min(end, t1) - max(start, t0)).days
+    union = (max(end, t1) - min(start, t0)).days or 1
+    return round(max(overlap, 0) / union, 3)
+
+
+def date_range(products: list[Product]) -> tuple[date, date] | None:
+    dated = [p for p in products if p.date1 and p.date2]
+    return (min(p.date1 for p in dated), max(p.date2 for p in dated)) if dated else None
+
+
+def _best_path(group: list[Product], max_pairs: int, target: tuple[date, date] | None = None) -> list[Product]:
+    """Best gapless chain (each pair starts on the date the previous one ends), at most ``max_pairs`` long.
+
+    Chosen by: overlap with ``target`` (e.g. the other satellite's window), then the longest time span, then the
+    most recent end, then the fewest pairs. A path search rather than a greedy pass, so it also finds the right
+    chain through OPERA DISP-S1 files, where each file runs from a reference date to a later date and the next
+    reference date is the last date of the previous group.
+    """
+    group = sorted(group, key=lambda p: (p.date1, p.date2))
+    # paths[(end date, number of pairs)] = {start date: path}; predecessors always sort first (shorter date1)
+    paths: dict[tuple[date, int], dict[date, list[Product]]] = defaultdict(dict)
+    for p in group:
+        new = [(p.date1, [p])]
+        for k in range(1, max_pairs):
+            for start, path in paths.get((p.date1, k), {}).items():
+                new.append((start, path + [p]))
+        for start, path in new:
+            slot = paths[(p.date2, len(path))]
+            if start not in slot:
+                slot[start] = path
+    best, best_key = [], None
+    for (end, k), starts in paths.items():
+        for start, path in starts.items():
+            key = (_iou(start, end, target), (end - start).days, end.toordinal(), -k)
+            if best_key is None or key > best_key:
+                best, best_key = path, key
+    return best
+
+
+def _best_window(chain: list[Product], n: int, target: tuple[date, date] | None = None) -> list[Product]:
+    """The run of ``n`` chain pairs with the fewest gaps, then the best overlap with ``target``, then the longest
+    time span, then the most recent."""
     if len(chain) <= n:
         return chain
     best, best_key = None, None
     for i in range(len(chain) - n + 1):
         w = chain[i:i + n]
         gaps = sum(1 for a, b in zip(w, w[1:]) if b.date1 != a.date2)
-        key = (gaps, -(w[-1].date2 - w[0].date1).days, -w[-1].date2.toordinal())
+        key = (gaps, -_iou(w[0].date1, w[-1].date2, target), -(w[-1].date2 - w[0].date1).days,
+               -w[-1].date2.toordinal())
         if best_key is None or key < best_key:
             best, best_key = w, key
     return best
 
 
 def select_pairs(products: list[Product], max_pairs: int, min_span: int, max_span: int,
-                 flight_direction: str | None = None) -> tuple[list[Product], list[Note]]:
+                 flight_direction: str | None = None,
+                 target: tuple[date, date] | None = None) -> tuple[list[Product], list[Note]]:
     """Choose a compact, same-geometry set of pairs suitable for rate stacking.
 
-    Preference: a sequential chain of pairs (each starts where the last ended), from the
-    single viewing geometry (flight direction + track) with the most products.
+    Preference: a gapless chain of pairs (each starts where the last ended), from the single viewing geometry
+    (flight direction + track) with the most products, overlapping ``target`` (the other satellite's time
+    window) as much as possible.
     """
     notes: list[Note] = []
     if not products:
@@ -202,21 +250,30 @@ def select_pairs(products: list[Product], max_pairs: int, min_span: int, max_spa
                           "Mixing geometries would mix different line-of-sight directions."))
 
     group.sort(key=lambda p: (p.date1, p.date2))
+    path = _best_path(group, max_pairs, target)
     chain: list[Product] = []
     for p in group:
         if not chain or p.date1 >= chain[-1].date2:
             chain.append(p)
-    if len(chain) >= 2:
-        selected = _best_window(chain, max_pairs)
+    window = _best_window(chain, max_pairs, target) if len(chain) >= 2 else []
+    path_days = (path[-1].date2 - path[0].date1).days if path else 0
+    if len(path) >= 2:
+        selected = path
+        notes.append(Note("search", GOOD, f"{sensor}: using {len(selected)} consecutive pairs covering {path_days} "
+                                          f"days ({selected[0].date1} → {selected[-1].date2}). Added together, the "
+                                          "atmospheric noise of the in-between dates cancels out."))
+    elif window and sum(p.span_days for p in window) > path_days:
+        selected = window
         gaps = sum(1 for a, b in zip(selected, selected[1:]) if b.date1 != a.date2)
         span = (selected[-1].date2 - selected[0].date1).days
-        if gaps == 0:
-            notes.append(Note("search", GOOD, f"{sensor}: using {len(selected)} consecutive pairs covering {span} days "
-                                              f"({selected[0].date1} → {selected[-1].date2}). Added together, the "
-                                              "atmospheric noise of the in-between dates cancels out."))
-        else:
-            notes.append(Note("search", INFO, f"{sensor}: using {len(selected)} pairs over {span} days with {gaps} "
-                                              "gap(s) between them; consecutive pairs would give less noise."))
+        notes.append(Note("search", INFO, f"{sensor}: using {len(selected)} pairs over {span} days with {gaps} "
+                                          "gap(s) between them; consecutive pairs would give less noise."))
+    elif path and path[0].product_type == "DISP-S1":
+        selected = path
+        notes.append(Note("search", INFO, f"{sensor}: using one OPERA file covering {path_days} days "
+                                          f"({path[0].date1} → {path[0].date2}); each file holds the total motion "
+                                          "since its reference date. With a single file the noise level cannot be "
+                                          "estimated."))
     else:
         selected = sorted(group, key=lambda p: -p.span_days)[:max_pairs]
         selected.sort(key=lambda p: p.date1)

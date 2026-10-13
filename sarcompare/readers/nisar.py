@@ -22,7 +22,8 @@ import numpy as np
 from ..aoi import AOI
 from ..notes import INFO, WARN, Note
 from ..products import NISAR, WAVELENGTH_NISAR_L, pair_dates_from_name
-from .base import Interferogram, aoi_slices, apply_fill, decode, make_da, source_name
+from .base import (Interferogram, aoi_slices, apply_fill, component_note, decode, fix_components, make_da,
+                   source_name)
 
 SPEED_OF_LIGHT = 299_792_458.0
 # NISAR interferograms are reference x conj(secondary) with the earlier acquisition as reference,
@@ -161,15 +162,25 @@ def read_nisar_gunw(path, aoi: AOI, polarization: str | None = None, apply_ionos
         cc_path = f"{pol_group}/connectedComponents"
         if cc_path in h5:
             cc = h5[cc_path][rows, cols]
+            cc_fill = h5[cc_path].attrs.get("_FillValue")
+            if cc_fill is not None:
+                cc = np.where(cc == np.asarray(cc_fill).ravel()[0], 0, cc)
             phase = np.where(cc == 0, np.nan, phase)
         iono_path = f"{pol_group}/ionospherePhaseScreen"
-        iono_std_mm = None
+        iono_std_mm = spread_before = spread_after = None
+        to_mm = WAVELENGTH_NISAR_L / (4 * np.pi) * 1000
         if iono_path in h5:
             iono = apply_fill(h5[iono_path][rows, cols], h5[iono_path].attrs.get("_FillValue"))
             if iono.shape == phase.shape:
-                iono_std_mm = float(np.nanstd(iono) * WAVELENGTH_NISAR_L / (4 * np.pi) * 1000)
+                iono_std_mm = float(np.nanstd(iono) * to_mm)
                 if apply_ionosphere:
+                    spread_before = float(np.nanstd(phase) * to_mm)
                     phase = phase - iono
+                    spread_after = float(np.nanstd(phase) * to_mm)
+        pieces = None
+        if cc_path in h5:
+            # separately unwrapped pieces can be off by whole cycles (2π); line them up with the largest piece
+            phase, pieces = fix_components(phase, cc, 2 * np.pi)
 
         freq_paths = [p for p in _named(paths, "centerFrequency") if "frequencyA" in p] or _named(paths, "centerFrequency")
         wavelength = WAVELENGTH_NISAR_L
@@ -193,13 +204,22 @@ def read_nisar_gunw(path, aoi: AOI, polarization: str | None = None, apply_ionos
     if iono_std_mm is not None:
         verb = "removed" if apply_ionosphere else "provided (not applied)"
         lvl = WARN if iono_std_mm > 10 and not apply_ionosphere else INFO
-        notes.append(Note("load", lvl, f"NISAR {date1}→{date2}: ionospheric phase screen {verb}; it varies by "
-                                       f"{iono_std_mm:.1f} mm (1σ) over the AOI. L-band is ~20× more sensitive "
-                                       "to the ionosphere than C-band."))
+        text = (f"NISAR {date1}→{date2}: ionospheric phase screen {verb}; it varies by {iono_std_mm:.1f} mm (1σ) "
+                "over the AOI. L-band is ~20× more sensitive to the ionosphere than C-band.")
+        if spread_before is not None and np.isfinite(spread_before) and np.isfinite(spread_after):
+            text += f" Spread of this pair: {spread_before:.1f} mm before, {spread_after:.1f} mm after."
+            if spread_after > 1.2 * spread_before + 1:
+                lvl = WARN
+                text += " The correction made the pair noisier, so it may be unreliable for this date."
+        notes.append(Note("load", lvl, text))
+    if pieces is not None:
+        note = component_note("NISAR", date1, date2, pieces, aligned=True)
+        if note:
+            notes.append(note)
     return Interferogram(
         sensor=NISAR, product_type="GUNW", name=fname, date1=date1, date2=date2,
         los=make_da(los, x[cols], y[rows], f"EPSG:{epsg}", "los"),
         coherence=make_da(coh, x[cols], y[rows], f"EPSG:{epsg}", "coherence"),
         wavelength=wavelength, incidence_deg=inc, flight_direction=direction, notes=notes,
-        extras={"polarization": pol, "ionosphere_std_mm": iono_std_mm},
+        extras={"polarization": pol, "ionosphere_std_mm": iono_std_mm, "pieces": pieces},
     )

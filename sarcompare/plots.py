@@ -79,6 +79,9 @@ def _map_row(panels, cmap, vmin, vmax, cbar_label, ref: Reference | None, t, tit
     return fig
 
 
+ZERO_LABEL = {"point": "▲ = reference point", "gnss": "absolute: tied to GNSS", "area": "zero = area median"}
+
+
 def rate_maps(a: RateMap, b: RateMap, c: Comparison, ref: Reference, theme="light", stations=None):
     t = THEMES[theme]
     ra, rb = a.rate * 1000, b.rate * 1000
@@ -94,7 +97,7 @@ def rate_maps(a: RateMap, b: RateMap, c: Comparison, ref: Reference, theme="ligh
         points = [tr.transform(s.lon, s.lat) for s in stations]
         extra = "; ○ = GNSS station"
     return _map_row(panels, _diverging(t), -lim, lim, f"{comp} rate (mm/yr) · blue = up/toward, red = down/away",
-                    ref, t, f"Mean {comp} displacement rate ({'▲ = reference point' if ref.mode == 'point' else 'zero = area median'}"
+                    ref, t, f"Mean {comp} displacement rate ({ZERO_LABEL.get(ref.mode, 'zero = area median')}"
                     f"{extra}; grey = no reliable data)",
                     points)
 

@@ -61,6 +61,12 @@ def regrid(da: xr.DataArray, template: xr.DataArray) -> xr.DataArray:
     return out.where(np.isfinite(out))
 
 
+def independent_pieces(ifgs) -> int:
+    """Number of gapless chains the pairs form (each pair starting on the date the previous one ended)."""
+    pairs = sorted((i.date1, i.date2) for i in ifgs)
+    return 1 + sum(1 for (_, end), (start, _) in zip(pairs, pairs[1:]) if start != end)
+
+
 def stack_rates(ifgs: list[Interferogram], template: xr.DataArray, coherence_threshold: float,
                 min_fraction: float = 0.5) -> RateMap:
     """Mean LOS rate by interferogram stacking: sum(displacement) / sum(time) per pixel.
@@ -93,16 +99,23 @@ def stack_rates(ifgs: list[Interferogram], template: xr.DataArray, coherence_thr
         rate = np.nansum(los, axis=0) / t_sum
     rate = np.where(n_valid >= need, rate, np.nan)
 
-    # Noise: residual of each pair about the stacked rate, propagated to the rate estimate.
+    # Noise: scatter of the pairs about the stacked rate, propagated to the rate estimate. It has two parts:
+    # * pixel-to-pixel noise (decorrelation), independent in every pair, measured from neighbouring-pixel
+    #   differences;
+    # * spatially smooth noise (atmosphere, ionosphere), which belongs to the acquisition dates: in a gapless chain
+    #   each in-between date enters one pair with + and the next with -, so only the end dates remain.
     noise = float("nan")
     if len(ifgs) >= 2:
         resid = los - rate[None] * years[:, None, None]
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)  # all-NaN pixels
             spread = np.nanstd(resid, axis=0)
+            white = np.nanmedian([np.nanstd(np.diff(r, axis=1)) / np.sqrt(2) for r in resid])
         sigma_pair = np.nanmedian(spread[n_valid >= 2]) if (n_valid >= 2).any() else np.nan
         if np.isfinite(sigma_pair):
-            noise = float(sigma_pair * np.sqrt(len(ifgs)) / years.sum())
+            white = min(float(white), float(sigma_pair)) if np.isfinite(white) else 0.0
+            smooth2 = sigma_pair ** 2 - white ** 2
+            noise = float(np.sqrt(independent_pieces(ifgs) * smooth2 + len(ifgs) * white ** 2) / years.sum())
 
     mean_coh = np.nanmean(coh, axis=0) if np.isfinite(coh).any() else coh[0]
     d0, d1 = min(i.date1 for i in ifgs), max(i.date2 for i in ifgs)

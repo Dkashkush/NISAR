@@ -147,3 +147,54 @@ def test_select_pairs_prefers_consecutive_window():
     assert all(a.date2 == b.date1 for a, b in zip(w, w[1:]))
     sel, notes = select_pairs(chain, max_pairs=3, min_span=6, max_span=96)
     assert any("consecutive pairs" in n.text for n in notes)
+
+
+def test_fix_components_aligns_whole_cycles_and_drops_tiny_pieces():
+    import numpy as np
+    from sarcompare.readers.base import fix_components
+
+    rng = np.random.default_rng(0)
+    truth = rng.normal(0, 0.3, (60, 60))  # radians: real signal, much less than half a cycle
+    labels = np.ones((60, 60), int)
+    labels[:, 40:] = 2  # second piece, unwrapped 2 cycles too high
+    labels[0:3, 0:3] = 3  # tiny piece
+    phase = truth + np.where(labels == 2, 2 * 2 * np.pi, 0.0)
+    fixed, info = fix_components(phase, labels, 2 * np.pi)
+    assert info["pieces"] == 3 and info["shifted"] == 1
+    np.testing.assert_allclose(fixed[labels == 2], truth[labels == 2], atol=1e-5)
+    assert np.isnan(fixed[labels == 3]).all()
+    kept, info = fix_components(phase, labels, None)  # C-band: keep only the largest piece
+    assert np.isnan(kept[labels != 1]).all() and np.isfinite(kept[labels == 1]).all()
+    single, info = fix_components(truth, np.ones_like(labels), 2 * np.pi)
+    assert info["pieces"] == 1 and np.array_equal(single, truth.astype("float32"))
+
+
+def test_select_pairs_chains_opera_files_through_reference_changes():
+    """OPERA DISP-S1: files (ref -> later dates); the next reference is the previous group's last date."""
+    from datetime import timedelta as td
+    from sarcompare.products import SENTINEL1
+
+    def f(d1, d2):
+        return Product(SENTINEL1, "DISP-S1", f"{d1}_{d2}", date1=d1, date2=d2, track=137, flight_direction="ASCENDING")
+
+    r0 = date(2025, 8, 12)
+    r1, r2 = r0 + td(12 * 8), r0 + td(12 * 16)
+    files = [f(r0, r0 + td(12 * k)) for k in range(1, 9)] + [f(r1, r1 + td(12 * k)) for k in range(1, 9)]
+    files += [f(r2, r2 + td(12 * k)) for k in range(1, 4)]
+    sel, notes = select_pairs(files, max_pairs=8, min_span=6, max_span=730)
+    assert [(p.date1, p.date2) for p in sel] == [(r0, r1), (r1, r2), (r2, r2 + td(36))]
+    # aim at another sensor's window: the chain that overlaps it best wins over the longest one
+    sel, _ = select_pairs(files, max_pairs=8, min_span=6, max_span=730, target=(r0, r1))
+    assert [(p.date1, p.date2) for p in sel] == [(r0, r1)]
+
+
+def test_select_pairs_follows_target_window():
+    from datetime import timedelta as td
+
+    d = date(2025, 10, 1)
+    prods = [_p(d + td(12 * k), d + td(12 * (k + 1))) for k in range(30)]
+    sel, _ = select_pairs(prods, max_pairs=4, min_span=6, max_span=96)
+    assert sel[-1].date2 == d + td(360)  # no target: most recent
+    target = (d + td(60), d + td(108))
+    sel, _ = select_pairs(prods, max_pairs=4, min_span=6, max_span=96, target=target)
+    assert (sel[0].date1, sel[-1].date2) == target
