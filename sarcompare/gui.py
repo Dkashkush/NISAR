@@ -280,13 +280,17 @@ def advanced_settings():
                         help="Pixels whose radar signal is less stable than this are left out.")
         max_pairs = c2.slider("Image pairs per satellite", 2, MAX_PAIRS_ONLINE if ONLINE else 20, 6)
         res = c3.select_slider("Map pixel size (m)", [30, 60, 90, 120, 200], value=90)
-        vertical = c3.checkbox("Show vertical motion", True, help="Converts line-of-sight motion to up/down, "
-                                                                  "assuming no sideways motion.")
+        vertical = c3.checkbox("Show vertical motion", True, help="Converts line-of-sight motion to up/down.")
+        both_dirs = c3.checkbox("Use both orbit directions", True,
+                                help="Combine passes from north-going (ascending) and south-going (descending) "
+                                     "orbits when both cover your area. This separates up-down from east-west "
+                                     "motion instead of assuming the ground only moves up and down. Reads about "
+                                     "twice as many files.")
         iono = c3.checkbox("Correct NISAR for the ionosphere", True)
         ref = st.text_input("Stable reference point 'longitude, latitude' (blank = automatic)", "")
     s1_code = {"Automatic (recommended)": "AUTO", "ARIA interferograms": "ARIA_S1_GUNW"}.get(s1, "OPERA_DISP_S1")
     return dict(s1=s1_code, direction=None if direction == "Any" else direction, coh=coh, max_pairs=max_pairs,
-                res=res, vertical=vertical, iono=iono, ref=ref)
+                res=res, vertical=vertical, iono=iono, ref=ref, both_dirs=both_dirs)
 
 
 def build_config(mode, bbox, period, checks, token, adv, local_dirs) -> Config:
@@ -315,6 +319,7 @@ def build_config(mode, bbox, period, checks, token, adv, local_dirs) -> Config:
         cfg.output_dir = f"outputs/{session_id()}"
     cfg.coherence_threshold, cfg.resolution_m, cfg.max_pairs = adv["coh"], float(adv["res"]), adv["max_pairs"]
     cfg.project_to_vertical, cfg.nisar_apply_ionosphere = adv["vertical"], adv["iono"]
+    cfg.combine_directions = adv.get("both_dirs", True)
     if adv["ref"].strip():
         cfg.reference_lonlat = tuple(float(v) for v in adv["ref"].split(","))
     return cfg
@@ -410,6 +415,11 @@ def show_results(res):
     with tabs[1]:
         st.image(res.figures["rate_maps"]["light"], use_container_width=True)
         st.caption("Left: NISAR. Middle: Sentinel-1. Right: their difference. Grey = no reliable data.")
+        if "east_west" in res.figures:
+            st.image(res.figures["east_west"]["light"], use_container_width=True)
+            st.caption("Sideways motion, measured by combining passes from the north-going (ascending) and "
+                       "south-going (descending) orbits. Around a sinking area the ground often also moves toward "
+                       "its centre. Grey = seen from one direction only.")
         st.image(res.figures["coherence_maps"]["light"], use_container_width=True)
         st.caption("Coherence = how stable the radar signal is between visits. Dark = good. Vegetation usually "
                    "lowers it, much more for Sentinel-1 than for NISAR.")

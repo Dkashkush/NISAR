@@ -8,6 +8,8 @@ readers are exercised on files with the same internal layout as the real product
 
 from __future__ import annotations
 
+import zlib
+
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -23,6 +25,8 @@ from .products import WAVELENGTH_NISAR_L, WAVELENGTH_S1_C
 DEMO_BBOX = (77.95, 30.20, 78.25, 30.45)
 NISAR_INC = (36.0, 40.0)  # incidence varies across the scene
 S1_INC = 34.0
+S1_INC_DESC = 39.0  # the descending demo passes look from the other side at a different angle
+DEMO_VERSION = "3"  # bump when the demo files change, so cached copies are rebuilt
 
 
 def _smooth_noise(rng, shape, scale_px, sigma):
@@ -37,6 +41,7 @@ class Scene:
         self.aoi = aoi
         self.crs = aoi.utm_crs()
         self.rng = np.random.default_rng(seed)
+        self.seed = seed
         w, s, e, n = aoi.bounds_in(self.crs)
         self.w, self.s, self.e, self.n = w, s, e, n
         cx, cy = (w + e) / 2, (s + n) / 2
@@ -80,6 +85,14 @@ class Scene:
     def atmosphere(self, shape, sigma_m):
         return _smooth_noise(self.rng, shape, max(shape) / 6, sigma_m) + _smooth_noise(self.rng, shape, 3, sigma_m / 3)
 
+    def pair_atmosphere(self, shape, sigma_m, d1: date, d2: date, key: str):
+        """Atmosphere of a pair as in real data: the smooth part belongs to each acquisition date (the same screen
+        enters every pair using that date, so it cancels along a chain); a small pixel-scale part is per pair."""
+        def screen(day):
+            rng = np.random.default_rng([self.seed, day.toordinal(), zlib.crc32(f"{key}{shape}".encode())])
+            return _smooth_noise(rng, shape, max(shape) / 6, sigma_m)
+        return screen(d2) - screen(d1) + _smooth_noise(self.rng, shape, 3, sigma_m / 3)
+
 
 def _pairs(first: date, n: int, span: int) -> list[tuple[date, date]]:
     return [(first + timedelta(days=k * span), first + timedelta(days=(k + 1) * span)) for k in range(n)]
@@ -92,7 +105,7 @@ def write_nisar_gunw(path: Path, scene: Scene, d1: date, d2: date, res=80.0, noi
     span = (d2 - d1).days
     inc = NISAR_INC[0] + (NISAR_INC[1] - NISAR_INC[0]) * (X - X.min()) / (X.max() - X.min())
     los = scene.vertical_rate(X, Y) * span / 365.25 * np.cos(np.radians(inc))
-    los += noise * scene.atmosphere(X.shape, 0.003)
+    los += noise * scene.pair_atmosphere(X.shape, 0.003, d1, d2, "nisar")
     coh = scene.coherence(X, Y, "NISAR", span)
     los += noise * scene.rng.normal(0, 1, X.shape) * 0.004 * np.sqrt(np.maximum(1 - coh, 0))
     k = 4 * np.pi / WAVELENGTH_NISAR_L
@@ -130,15 +143,16 @@ def write_nisar_gunw(path: Path, scene: Scene, d1: date, d2: date, res=80.0, noi
         rg["incidenceAngle"] = np.stack([cube_inc + d for d in (0.05, 0.0, -0.1, -0.3)]).astype("float32")
 
 
-def write_aria_gunw(path: Path, scene: Scene, d1: date, d2: date, res_deg=1 / 1200, noise: float = 1.0):
+def write_aria_gunw(path: Path, scene: Scene, d1: date, d2: date, res_deg=1 / 1200, noise: float = 1.0,
+                    incidence: float = S1_INC):
     w, s, e, n = scene.aoi.bounds
     lon = np.arange(w - 0.05, e + 0.05, res_deg)
     lat = np.arange(n + 0.05, s - 0.05, -res_deg)
     LON, LAT = np.meshgrid(lon, lat)
     X, Y = Transformer.from_crs("EPSG:4326", scene.crs, always_xy=True).transform(LON, LAT)
     span = (d2 - d1).days
-    los = scene.vertical_rate(X, Y) * span / 365.25 * np.cos(np.radians(S1_INC))
-    los += noise * scene.atmosphere(X.shape, 0.003)
+    los = scene.vertical_rate(X, Y) * span / 365.25 * np.cos(np.radians(incidence))
+    los += noise * scene.pair_atmosphere(X.shape, 0.003, d1, d2, f"s1-{incidence}")
     coh = scene.coherence(X, Y, "S1", span)
     los += noise * scene.rng.normal(0, 1, X.shape) * 0.004 * np.sqrt(np.maximum(1 - coh, 0))
     phase = 4 * np.pi / WAVELENGTH_S1_C * los  # ARIA convention: positive phase = toward the satellite
@@ -152,7 +166,7 @@ def write_aria_gunw(path: Path, scene: Scene, d1: date, d2: date, res_deg=1 / 12
         h5.create_dataset(f"{g}/coherence", data=coh.astype("float32"), compression="gzip")
         h5.create_dataset(f"{g}/connectedComponents", data=cc, compression="gzip")
         h5["/science/radarMetaData/wavelength"] = WAVELENGTH_S1_C
-        h5["/science/grids/imagingGeometry/incidenceAngle"] = np.full((3, 4, 4), S1_INC, dtype="float32")
+        h5["/science/grids/imagingGeometry/incidenceAngle"] = np.full((3, 4, 4), incidence, dtype="float32")
 
 
 def make_demo_data(root: str | Path = "data/demo", seed: int = 7) -> tuple[Path, Path]:
@@ -163,7 +177,8 @@ def make_demo_data(root: str | Path = "data/demo", seed: int = 7) -> tuple[Path,
     """
     root = Path(root)
     nisar_dir, s1_dir = root / "nisar", root / "sentinel1"
-    if (root / ".complete").exists():
+    done = root / ".complete"
+    if done.exists() and done.read_text().strip() == DEMO_VERSION:
         return nisar_dir, s1_dir
     import os
     import shutil
@@ -184,28 +199,18 @@ def make_demo_data(root: str | Path = "data/demo", seed: int = 7) -> tuple[Path,
         write_aria_gunw(tmp / "sentinel1" / name, scene, d1, d2)
     write_gnss_cache(tmp / "gnss", scene)
     write_published_map(tmp / "published_velocity_demo.tif", scene)
-    (tmp / ".complete").write_text("ok\n")
-    if root.exists() and not (root / ".complete").exists():
-        shutil.rmtree(root, ignore_errors=True)  # stale, half-written folder from an interrupted older run
+    # descending Sentinel-1 passes (written last so the files above stay identical): with both directions the app
+    # separates vertical from east-west motion
+    for d1, d2 in _pairs(date(2025, 10, 10), 6, 48):
+        name = f"S1-GUNW-D-R-063-tops-{d2:%Y%m%d}_{d1:%Y%m%d}-122030-00078E_00030N-PP-c3d4-v3_0_1.nc"
+        write_aria_gunw(tmp / "sentinel1" / name, scene, d1, d2, incidence=S1_INC_DESC)
+    (tmp / ".complete").write_text(DEMO_VERSION + "\n")
+    if root.exists() and not (done.exists() and done.read_text().strip() == DEMO_VERSION):
+        shutil.rmtree(root, ignore_errors=True)  # stale: half-written, or made by an older version
     try:
         os.rename(tmp, root)
     except OSError:  # someone else finished first: use theirs
         shutil.rmtree(tmp, ignore_errors=True)
-    return nisar_dir, s1_dir
-    nisar_dir.mkdir(parents=True, exist_ok=True)
-    s1_dir.mkdir(parents=True, exist_ok=True)
-    scene = Scene(AOI.from_bbox(*DEMO_BBOX, name="demo"), seed)
-    for i, (d1, d2) in enumerate(_pairs(date(2025, 10, 10), 6, 48)):
-        # official pattern: NISAR_L2_PR_GUNW_<refcycle>_<track>_<dir>_<frame>_<seccycle>_<bw>_<pol>_<4 times>_<crid>_...
-        name = (f"NISAR_L2_PR_GUNW_{4 * i + 5:03d}_120_A_045_{4 * i + 9:03d}_4000_SH_{d1:%Y%m%d}T123000_"
-                f"{d1:%Y%m%d}T123020_{d2:%Y%m%d}T123000_{d2:%Y%m%d}T123020_X05010_N_P_J_001.h5")
-        write_nisar_gunw(nisar_dir / name, scene, d1, d2)
-    for d1, d2 in _pairs(date(2025, 10, 4), 6, 48):
-        name = f"S1-GUNW-A-R-114-tops-{d2:%Y%m%d}_{d1:%Y%m%d}-003012-00078E_00030N-PP-a1b2-v3_0_1.nc"
-        write_aria_gunw(s1_dir / name, scene, d1, d2)
-    write_gnss_cache(root / "gnss", scene)
-    write_published_map(root / "published_velocity_demo.tif", scene)
-    done.write_text("ok\n")
     return nisar_dir, s1_dir
 
 

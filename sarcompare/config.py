@@ -38,6 +38,8 @@ class Config:
     resolution_m: float = 90.0  # common comparison grid spacing
     reference_lonlat: tuple[float, float] | None = None  # stable reference point; auto if None
     project_to_vertical: bool = True  # LOS -> vertical assuming purely vertical motion
+    combine_directions: bool = True  # use ascending + descending passes when both exist: separates vertical and
+    #                                  east-west motion instead of assuming the ground only moves up and down
     s1_sign: float | None = None  # override sign convention (+1 / -1) if a product disagrees
     nisar_sign: float | None = None
 

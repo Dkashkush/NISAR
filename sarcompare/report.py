@@ -170,6 +170,9 @@ def build_report(r) -> str:
             extra = (_img(fig["rate_maps"], "Rate maps side by side and difference")
                      + '<div style="max-width:520px;margin-top:12px">'
                      + _img(fig["scatter"], "Scatter of NISAR vs Sentinel-1 rates") + "</div>")
+            if "east_west" in fig:
+                extra += ('<div style="max-width:760px;margin-top:12px">'
+                          + _img(fig["east_west"], "East-west motion from ascending and descending passes") + "</div>")
         if stage == "validate":
             if "gnss" in fig:
                 extra += '<div style="max-width:560px">' + _img(fig["gnss"], "InSAR vs GNSS scatter") + "</div>"

@@ -58,7 +58,9 @@ def _extent(da):
 
 
 def _map_row(panels, cmap, vmin, vmax, cbar_label, ref: Reference | None, t, title, points=None):
-    fig, axes = plt.subplots(1, len(panels), figsize=(4.2 * len(panels), 4.3), constrained_layout=True)
+    fig, axes = plt.subplots(1, len(panels), figsize=(4.2 * max(len(panels), 1.4), 4.3), constrained_layout=True,
+                             squeeze=False)
+    axes = axes[0]
     _style(fig, axes, t)
     im = None
     for ax, (label, da) in zip(axes, panels):
@@ -100,6 +102,16 @@ def rate_maps(a: RateMap, b: RateMap, c: Comparison, ref: Reference, theme="ligh
                     ref, t, f"Mean {comp} displacement rate ({ZERO_LABEL.get(ref.mode, 'zero = area median')}"
                     f"{extra}; grey = no reliable data)",
                     points)
+
+
+def east_west_maps(east: dict, theme="light"):
+    """East-west rate for each sensor whose ascending and descending passes were combined (+ = eastward)."""
+    t = THEMES[theme]
+    panels = [(f"{sensor} east-west", rm.rate * 1000) for sensor, rm in east.items() if rm is not None]
+    vals = np.concatenate([da.values[np.isfinite(da.values)] for _, da in panels]) if panels else np.array([])
+    lim = max(float(np.nanpercentile(np.abs(vals), 98)), 5.0) if vals.size else 10.0
+    return _map_row(panels, _diverging(t), -lim, lim, "east-west rate (mm/yr), relative · blue = east, red = west",
+                    None, t, "East-west motion (ascending + descending passes)")
 
 
 def coherence_maps(a: RateMap, b: RateMap, theme="light"):

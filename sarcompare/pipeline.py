@@ -20,11 +20,11 @@ from .config import Config
 from .download import download_products
 from .interpret import comparison_notes, gnss_notes, literature_notes, pair_notes, published_notes, stack_notes
 from .notes import INFO, WARN, Note
-from .processing import (RateMap, Reference, aoi_mask, apply_reference, choose_reference, common_grid,
-                         merge_frames, reference_notes, stack_rates, to_vertical)
+from .processing import (RateMap, Reference, aoi_mask, apply_reference, choose_reference, combine_directions,
+                         common_grid, merge_frames, reference_notes, stack_rates, to_vertical)
 from .products import NISAR, SENTINEL1, Product
 from .readers import read_product
-from .search import date_range, overlap_notes, scan_local, search_nisar, search_sentinel1, select_pairs
+from .search import date_range, overlap_notes, scan_local, search_nisar, search_sentinel1, select_directions
 
 
 @dataclass
@@ -42,6 +42,7 @@ class RunResult:
     s1_products: list[Product] = field(default_factory=list)
     nisar_rate: RateMap | None = None
     s1_rate: RateMap | None = None
+    east: dict = field(default_factory=dict)  # sensor -> east-west RateMap when both flight directions were combined
     reference: Reference | None = None
     gnss_corrections: dict = field(default_factory=dict)  # sensor -> validate.GnssCorrection (when tied to GNSS)
     comparison: Comparison | None = None
@@ -95,10 +96,11 @@ class Pipeline:
         # then Sentinel-1 once more against the chosen NISAR window.
         nisar_dates = date_range(nisar_all)
         s1_span = cfg.max_span_days
+        combine = cfg.combine_directions and cfg.project_to_vertical
         if cfg.s1_source == "LOCAL":
             s1_all = scan_local(cfg.s1_dir, SENTINEL1)
-            s1, n2 = select_pairs(s1_all, cfg.max_pairs, cfg.min_span_days, s1_span, cfg.s1_flight_direction,
-                                  target=nisar_dates)
+            s1, n2 = select_directions(s1_all, cfg.max_pairs, cfg.min_span_days, s1_span, cfg.s1_flight_direction,
+                                       target=nisar_dates, combine=combine)
         else:
             # Try each source in turn and keep the first that yields usable pairs (not merely any products).
             s1_all, s1, n2 = [], [], []
@@ -106,8 +108,8 @@ class Pipeline:
             for source in self._s1_sources():
                 found = search_sentinel1(self.aoi, source, cfg.start, cfg.end, cfg.s1_flight_direction)
                 span = max(cfg.max_span_days, 730) if source == "OPERA_DISP_S1" else cfg.max_span_days
-                sel, sel_notes = select_pairs(found, cfg.max_pairs, cfg.min_span_days, span, cfg.s1_flight_direction,
-                                              target=nisar_dates)
+                sel, sel_notes = select_directions(found, cfg.max_pairs, cfg.min_span_days, span,
+                                                   cfg.s1_flight_direction, target=nisar_dates, combine=combine)
                 s1_all, s1, n2, s1_span = found, sel, sel_notes, span
                 if sel:
                     if cfg.s1_source == "AUTO":
@@ -117,11 +119,11 @@ class Pipeline:
                     notes.append(Note("search", INFO, f"{names[source]}: {len(found)} product(s) found, none usable "
                                                       "for this area and period; trying the next source."))
         notes.insert(0, Note("search", INFO, f"Found {len(nisar_all)} NISAR and {len(s1_all)} Sentinel-1 products."))
-        nisar, n1 = select_pairs(nisar_all, cfg.max_pairs, cfg.min_span_days, cfg.max_span_days,
-                                 cfg.nisar_flight_direction, target=date_range(s1))
+        nisar, n1 = select_directions(nisar_all, cfg.max_pairs, cfg.min_span_days, cfg.max_span_days,
+                                      cfg.nisar_flight_direction, target=date_range(s1), combine=combine)
         if nisar and s1:
-            s1, n2 = select_pairs(s1_all, cfg.max_pairs, cfg.min_span_days, s1_span, cfg.s1_flight_direction,
-                                  target=date_range(nisar))
+            s1, n2 = select_directions(s1_all, cfg.max_pairs, cfg.min_span_days, s1_span, cfg.s1_flight_direction,
+                                       target=date_range(nisar), combine=combine)
         notes += n1 + n2 + overlap_notes(nisar, s1, cfg.start)
         self.result.nisar_products, self.result.s1_products = nisar, s1
         self.emit("search", f"Selected {len(nisar)} NISAR and {len(s1)} Sentinel-1 pairs", notes)
@@ -197,28 +199,46 @@ class Pipeline:
         for sensor, products in ((NISAR, self.result.nisar_products), (SENTINEL1, self.result.s1_products)):
             if not products:
                 raise RuntimeError(f"No {sensor} products to compare; see the search notes above.")
-            by_frame: dict = {}
+            groups: dict = {}  # flight direction -> frame -> interferograms
+            tracks: dict = {}  # flight direction -> track numbers
             for k, p in enumerate(products):
                 try:
                     ifg = self._read(p)
                 except (ValueError, KeyError, OSError, RuntimeError) as e:  # bad subset, missing layer, bad file
                     self.emit("load", f"Skipping {p.name}", [Note("load", WARN, f"Could not use {p.name}: {e}")])
                     continue
-                by_frame.setdefault(p.frame, []).append(ifg)
+                direction = (p.flight_direction or ifg.flight_direction or "").upper() or None
+                groups.setdefault(direction, {}).setdefault(p.frame, []).append(ifg)
+                tracks.setdefault(direction, set()).add(p.track)
                 self.emit("load", f"Loaded {ifg.sensor} pair {ifg.date1} → {ifg.date2}",
                           pair_notes(ifg, cfg.coherence_threshold), progress=(k + 1) / len(products))
-            if not by_frame:
+            if not groups:
                 raise RuntimeError(f"None of the {sensor} products could be read over this AOI.")
-            # frames are processed separately (each has its own zero): stack each, then join them
-            stacks = [stack_rates(ifgs, template, cfg.coherence_threshold) for ifgs in by_frame.values()]
+            los: dict = {}
             join_notes: list[Note] = []
-            rm = stacks[0]
-            if len(stacks) > 1:
-                rm, join_notes = merge_frames(stacks)
+            for direction, frames in groups.items():
+                # frames are processed separately (each has its own zero): stack each, then join them
+                stacks = [stack_rates(ifgs, template, cfg.coherence_threshold) for ifgs in frames.values()]
+                rm = stacks[0]
+                if len(stacks) > 1:
+                    rm, notes = merge_frames(stacks)
+                    join_notes += notes
+                rm.direction = direction
+                track_txt = ", ".join(str(t) for t in sorted(t for t in tracks[direction] if t is not None))
+                rm.geometry = f"{(direction or 'unknown direction').lower()} track {track_txt or '?'}"
+                los[direction] = rm
+            east = None
+            if cfg.project_to_vertical and {"ASCENDING", "DESCENDING"} <= set(los):
+                rm, east, combine_notes = combine_directions(los["ASCENDING"], los["DESCENDING"],
+                                                             self.result.inside)
+                join_notes += combine_notes
+            else:
+                rm = next(iter(los.values()))
+                if cfg.project_to_vertical:
+                    rm = to_vertical(rm)
             load_notes = [n for n in rm.notes] + join_notes  # reader notes, e.g. ionosphere / incidence
-            if cfg.project_to_vertical:
-                rm = to_vertical(rm)
             rates[sensor] = rm
+            self.result.east[sensor] = east
             self.emit("stack", f"{sensor}: mean {rm.component} rate from {rm.n_pairs} pairs",
                       _dedupe(load_notes) + stack_notes(rm))
         self.result.nisar_rate, self.result.s1_rate = rates[NISAR], rates[SENTINEL1]
@@ -354,6 +374,9 @@ class Pipeline:
                                                     r.gnss.stations if r.gnss else None),
             "scatter": lambda th: plots.scatter(a, b, c, th),
         }
+        east = {k: v for k, v in r.east.items() if v is not None}
+        if east:
+            builders["east_west"] = lambda th: plots.east_west_maps(east, th)
         if r.gnss and r.gnss.stations:
             builders["gnss"] = lambda th: plots.gnss_scatter(r.gnss, [NISAR, SENTINEL1], th)
         for k, pv in enumerate(r.published):
@@ -373,7 +396,9 @@ class Pipeline:
         for key, da in ((f"nisar_{comp}_rate_m_per_yr", r.nisar_rate.rate),
                         (f"s1_{comp}_rate_m_per_yr", r.s1_rate.rate),
                         ("nisar_minus_s1_m_per_yr", r.comparison.difference),
-                        ("nisar_coherence", r.nisar_rate.coherence), ("s1_coherence", r.s1_rate.coherence)):
+                        ("nisar_coherence", r.nisar_rate.coherence), ("s1_coherence", r.s1_rate.coherence),
+                        *((f"{'nisar' if k == NISAR else 's1'}_east_west_rate_m_per_yr", v.rate)
+                          for k, v in r.east.items() if v is not None)):
             path = out / f"{key}.tif"
             da.rio.to_raster(path, driver="GTiff", compress="deflate")
             r.outputs[key] = str(path)
@@ -384,6 +409,7 @@ class Pipeline:
         metrics = {
             "config": self.cfg.to_dict(),
             "nisar": _rate_summary(r.nisar_rate), "sentinel1": _rate_summary(r.s1_rate),
+            "east_west": {k: _rate_summary(v) for k, v in r.east.items() if v is not None},
             "reference": {"mode": r.reference.mode, "lon": r.reference.lon, "lat": r.reference.lat},
             "comparison": r.comparison.to_dict(),
             "pairs": [p.to_row() for p in r.nisar_products + r.s1_products],
@@ -425,7 +451,8 @@ def _dedupe(notes: list[Note]) -> list[Note]:
 def _rate_summary(rm: RateMap) -> dict:
     return {"component": rm.component, "n_pairs": rm.n_pairs, "total_days": rm.total_days,
             "date_start": str(rm.date_start), "date_end": str(rm.date_end), "incidence_deg": rm.incidence_deg,
-            "wavelength_m": rm.wavelength, "noise_rate_mm_yr": rm.noise_rate * 1000, "pairs_qc": rm.pair_qc}
+            "wavelength_m": rm.wavelength, "noise_rate_mm_yr": rm.noise_rate * 1000, "pairs_qc": rm.pair_qc,
+            "geometry": rm.geometry, "two_direction_fraction": rm.two_direction_fraction}
 
 
 def _validation_summary(r: RunResult) -> dict:

@@ -49,7 +49,9 @@ search ─► select pairs ─► download ─► load & crop ─► stack into 
    small to line up safely).
 4. **Stack** the pairs into a mean rate per sensor, and estimate the rate noise from pair-to-pair scatter
    (pixel noise counts once per pair; atmospheric noise counts once per gapless chain, because it cancels
-   on the in-between dates). Rates can be projected to vertical.
+   on the in-between dates). Rates are converted to vertical motion. When both ascending (north-going) and
+   descending (south-going) passes cover the area, they are combined to measure vertical and east-west motion
+   separately, instead of assuming the ground only moves up and down; the east-west map is shown and saved too.
 5. **Reference** both maps the same way. Automatic mode uses the median over the pixels valid in both
    (zero = typical motion of the area), then, when GNSS is on, shifts each map to match the GNSS stations,
    so the rates become absolute. You can also give a known-stable point, such as bedrock or a GNSS
@@ -178,7 +180,8 @@ For areas outside ARIA/OPERA coverage (e.g. India), use HyP3 on-demand products 
 | `gnss_correction` | `auto` (plane through InSAR − GNSS with ≥ 5 spread-out stations, else a shift) or `offset` |
 | `gnss` | `NGL` (automatic GNSS), a path to a CSV (`site,lon,lat,up_mm_yr,up_sigma_mm_yr`), or empty |
 | `published_maps` | List of `{path, label, units, component: vertical/LOS, sign, incidence_deg, period}` |
-| `project_to_vertical` | LOS → vertical, assuming no horizontal motion |
+| `project_to_vertical` | LOS → vertical |
+| `combine_directions` | Use ascending + descending passes when both exist, to separate vertical from east-west motion (default true; `max_pairs` applies to each direction) |
 | `nisar_sign`, `s1_sign` | Flip a product's sign convention if the sanity check flags a mismatch |
 
 ## Testing on real data (GitHub Actions)
@@ -275,8 +278,10 @@ and the responsible authorities.
 
 - **Rates are relative** to the reference point, unless they are tied to GNSS (then they are only as good as
   the stations).
-- **Vertical projection assumes no horizontal motion.** Landslides and faults also move sideways. Combine
-  ascending and descending tracks to separate the two.
+- **One viewing direction cannot separate sideways from vertical motion.** Landslides, faults and the edges of
+  subsidence bowls also move sideways. When ascending and descending passes both exist, the app combines them
+  and separates vertical from east-west motion; north-south motion stays unmeasured (near-polar orbits are
+  almost blind to it).
 - **Short time spans are noisy.** Tropospheric water vapour adds centimetres per acquisition. The report
   gives a detection threshold (~2× the rate noise); trust signals above it.
 - **Non-overlapping time windows** make seasonal motion look like disagreement.

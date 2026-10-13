@@ -355,6 +355,37 @@ def _select_chain(group: list[Product], sensor: str, max_pairs: int,
     return selected, notes
 
 
+def select_directions(products: list[Product], max_pairs: int, min_span: int, max_span: int,
+                      flight_direction: str | None = None, target: tuple[date, date] | None = None,
+                      combine: bool = True, min_coverage: float = 0.5) -> tuple[list[Product], list[Note]]:
+    """Like select_pairs, but with ``combine`` picks pairs from both flight directions when both cover the area,
+    so vertical and east-west motion can be separated (processing.combine_directions). ``max_pairs`` applies to
+    each direction."""
+    if not combine or flight_direction:
+        return select_pairs(products, max_pairs, min_span, max_span, flight_direction, target)
+    picks = {}
+    for d in ("ASCENDING", "DESCENDING"):
+        group = [p for p in products if (p.flight_direction or "").upper() == d]
+        cov = coverage(group)
+        if group and (cov is None or cov >= min_coverage):
+            sel, notes = select_pairs(group, max_pairs, min_span, max_span, d, target)
+            if sel:
+                picks[d] = (sel, notes)
+    if len(picks) < 2:
+        return select_pairs(products, max_pairs, min_span, max_span, None, target)
+    # both directions should describe the same period, or their difference is time, not geometry
+    w = {d: (sel[0].date1, sel[-1].date2) for d, (sel, _) in picks.items()}
+    if _iou(*w["ASCENDING"], w["DESCENDING"]) < 0.5:
+        sel, notes = select_pairs(products, max_pairs, min_span, max_span, None, target)
+        return sel, notes + [Note("search", INFO, f"{products[0].sensor}: both flight directions have data, but "
+                                                  "not for matching periods, so only one is used.")]
+    selected = picks["ASCENDING"][0] + picks["DESCENDING"][0]
+    notes = picks["ASCENDING"][1] + picks["DESCENDING"][1]
+    notes.append(Note("search", GOOD, f"{products[0].sensor}: using both ascending and descending passes, so "
+                                      "vertical and east-west motion can be measured separately."))
+    return selected, notes
+
+
 def overlap_notes(nisar: list[Product], s1: list[Product], start=None) -> list[Note]:
     """Explain how well the two sensors' time windows line up."""
     notes: list[Note] = []

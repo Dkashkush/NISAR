@@ -51,6 +51,11 @@ def stack_notes(rm: RateMap) -> list[Note]:
     return notes
 
 
+def _combined(rm: RateMap) -> bool:
+    """True when most of the map's vertical rate comes from ascending + descending passes (sideways motion separated)."""
+    return getattr(rm, "two_direction_fraction", 0.0) > 0.5
+
+
 def motion_words(peak_mm_yr: float, mode: str = "area") -> str:
     """How to describe a moving area, depending on what zero means (see Reference.mode)."""
     if mode == "gnss":
@@ -105,10 +110,12 @@ def comparison_notes(c: Comparison, a: RateMap, b: RateMap, mode: str = "area") 
                       f"{_fmt(c.noise_b_mm_yr, 0)} mm/yr).")
         if math.isfinite(c.slope) and c.pearson_r > 0.4:
             if c.slope < 0.75 or c.slope > 1.33:
+                horiz = ("" if _combined(a) and _combined(b) else
+                         "horizontal motion (a single viewing direction cannot tell it from vertical motion, and the "
+                         "two satellites look from different angles), ")
                 add(INFO, f"The amplitude differs (slope {_fmt(c.slope, 2)}: {B} ≈ {_fmt(c.slope, 2)} × {A}). "
-                          "Causes: horizontal motion (the vertical projection assumes none, and the two satellites "
-                          "look from different angles), non-steady motion over non-matching time windows, or "
-                          "incidence-angle assumptions.")
+                          f"Causes: {horiz}non-steady motion over non-matching time windows, smooth atmospheric "
+                          "tilts, or incidence-angle assumptions.")
 
     if math.isfinite(c.ramp_mm_yr):
         lvl = WARN if c.ramp_mm_yr > max(10, 2 * c.rmsd_detrended_mm_yr) else INFO
@@ -145,9 +152,18 @@ def comparison_notes(c: Comparison, a: RateMap, b: RateMap, mode: str = "area") 
     # --- Caveats
     zero = {"gnss": "rates are tied to GNSS, so their accuracy depends on the stations used",
             "point": "rates are relative to your reference point"}.get(mode, "rates are relative to the area median")
-    add(INFO, f"Caveats: {zero}. The vertical projection assumes no "
-              "horizontal motion. Combining ascending and descending tracks separates vertical from east–west "
-              "motion. Nonlinear (e.g. seasonal) motion is averaged out by rate stacking.")
+    both = [rm.sensor for rm in (a, b) if _combined(rm)]
+    single = [rm.sensor for rm in (a, b) if not _combined(rm)]
+    if not single:
+        geo = ("Both vertical maps come from ascending + descending passes, so sideways (east-west) motion is "
+               "separated; north-south motion is not measured.")
+    elif both:
+        geo = (f"{both[0]}'s vertical map comes from ascending + descending passes (sideways motion separated); "
+               f"{single[0]}'s assumes the ground moves only up and down.")
+    else:
+        geo = ("The vertical maps assume the ground moves only up and down; with ascending and descending passes "
+               "the app separates vertical from east-west motion.")
+    add(INFO, f"Caveats: {zero}. {geo} Nonlinear (e.g. seasonal) motion is averaged out by rate stacking.")
     return notes
 
 
@@ -190,9 +206,10 @@ def gnss_notes(gv, rates: list[RateMap], tied: bool = False) -> list[Note]:
             add(GOOD, base + f" This is within what the InSAR noise (~{noise:.0f} mm/yr) predicts, so {rm.sensor} "
                              "agrees with GNSS.")
         else:
-            add(WARN, base + " Larger than the InSAR noise predicts. Usual causes: horizontal motion (the "
-                             "vertical projection ignores it), GNSS and InSAR periods that differ, very local "
-                             "motion of the GNSS monument, or residual atmosphere or ionosphere.")
+            horiz = "" if _combined(rm) else "horizontal motion (a single viewing direction cannot separate it), "
+            add(WARN, base + f" Larger than the InSAR noise predicts. Usual causes: {horiz}GNSS and InSAR periods "
+                             "that differ, very local motion of the GNSS monument, or residual atmosphere or "
+                             "ionosphere.")
     offsets = {k: v.offset_mm_yr for k, v in gv.stats.items() if v.n >= 2 and math.isfinite(v.offset_mm_yr)}
     if offsets and not tied and all(abs(o) > 8 for o in offsets.values()):
         mean_off = float(np.mean(list(offsets.values())))

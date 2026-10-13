@@ -246,3 +246,37 @@ def test_select_pairs_prefers_the_geometry_that_covers_the_area():
     sel, notes = select_pairs(full + edge, max_pairs=4, min_span=6, max_span=96)
     assert {x.track for x in sel} == {34} and len(sel) == 4
     assert any("covering 100% of the area" in n.text for n in notes)
+
+
+def test_combine_directions_separates_vertical_and_east_west():
+    from datetime import timedelta as td
+    import numpy as np
+    from sarcompare.processing import NOMINAL_HEADING, RateMap, combine_directions, los_vector
+    from sarcompare.products import SENTINEL1
+    from sarcompare.readers.base import make_da
+
+    x, y = 500000 + np.arange(60) * 90.0, 4000000 + np.arange(50)[::-1] * 90.0
+    X, Y = np.meshgrid(x, y)
+    r2 = (X - x.mean()) ** 2 + (Y - y.mean()) ** 2
+    up = -0.20 * np.exp(-r2 / (2 * 1200.0 ** 2))                        # bowl, -200 mm/yr at the centre
+    east = -0.04 * (X - x.mean()) / 1200.0 * np.exp(-r2 / (2 * 1200.0 ** 2))  # ground drawn toward the centre
+    d = date(2026, 1, 1)
+
+    def los_map(direction, inc):
+        e, n, u = los_vector(inc, NOMINAL_HEADING[direction])
+        v = e * east + u * up + 0.013  # each direction has its own arbitrary zero
+        da = make_da(v, x, y, "EPSG:32614", "rate")
+        return RateMap(SENTINEL1, da, da * 0 + 0.7, da * 0 + 9, 9, 108, d, d + td(108), inc, 0.0555,
+                       noise_rate=0.002, direction=direction, geometry=f"{direction.lower()} track 1")
+
+    asc, desc = los_map("ASCENDING", 39.0), los_map("DESCENDING", 34.0)
+    desc.rate.values[:, :10] = np.nan  # part of the area seen from one direction only
+    vert, ew, notes = combine_directions(asc, desc)
+    both = np.isfinite(desc.rate.values)
+    rel = lambda a: a - np.median(a[both])  # noqa: E731  (both maps get a common zero)
+    np.testing.assert_allclose(rel(vert.rate.values)[both], rel(up)[both], atol=1e-6)
+    np.testing.assert_allclose(rel(ew.rate.values)[both], rel(east)[both], atol=1e-6)
+    assert np.isfinite(vert.rate.values[:, :10]).all() and np.isnan(ew.rate.values[:, :10]).all()
+    assert 0.8 < vert.two_direction_fraction < 0.85 and vert.component == "vertical"
+    assert "ascending track 1 + descending track 1" in notes[0].text
+    assert any("east-west motion reaches" in n.text for n in notes)
