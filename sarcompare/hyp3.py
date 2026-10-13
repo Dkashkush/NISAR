@@ -279,6 +279,12 @@ def plan_pairs(aoi: AOI, start=None, end=None, *, target: dict[str, list[date]] 
         covers = sorted(s.cover for s in days.values())
         return (covers[len(covers) // 2], len(days))
 
+    found = sorted(groups, key=lambda k: (k[0], k[1], k[2]))
+    notes.append(Note("search", INFO, f"Sentinel-1 images over the area: {len(scenes)} on "
+                                      + "; ".join(f"{k[0].lower()} track {k[1]} ({k[2]}, {len(groups[k])} dates "
+                                                  f"{min(groups[k])} → {max(groups[k])}, covering "
+                                                  f"{score(k)[0]:.0%})" for k in found[:8])
+                                      + ("; …" if len(found) > 8 else "") + "."))
     target = target or {}
     if directions:
         wanted = [d.upper() for d in directions]
@@ -313,6 +319,13 @@ def plan_pairs(aoi: AOI, start=None, end=None, *, target: dict[str, list[date]] 
             a, b = days[d1], days[d2]
             pairs.append(PlannedPair(a.name, b.name, d1, d2, direction, key[1], key[2], min(a.cover, b.cover)))
         pairs = pairs[-max_pairs:]
+        if not pairs:
+            want = target.get(direction) or target.get("", []) or all_dates
+            when = f" the NISAR dates ({min(want)} → {max(want)})" if want else " the period"
+            notes.append(Note("search", WARN, f"Sentinel-1 {direction.lower()} track {key[1]} ({key[2]}) has images "
+                                              f"from {avail[0]} to {avail[-1]}, but none that form pairs of "
+                                              f"{min_span}-{max_span} days on{when}. Choose a period when both "
+                                              "satellites have images."))
         if pairs:
             gaps = sum(1 for p, q in zip(pairs, pairs[1:]) if p.date2 != q.date1)
             notes.append(Note("search", GOOD if not gaps else INFO,
@@ -395,6 +408,9 @@ def order(client: HyP3, aoi: AOI, pairs: list[PlannedPair], validate_only: bool 
     remaining = info.get("remaining_credits")
     cost = client.cost() * len(todo)
     notes: list[Note] = []
+    if not pairs:
+        notes.append(Note("search", INFO, "No Sentinel-1 pairs were planned, so nothing was sent."))
+        return OrderResult([], 0, 0.0, remaining, notes)
     if not todo:
         notes.append(Note("search", INFO, "All these Sentinel-1 pairs are already ordered; nothing new was sent."))
         return OrderResult([], skipped, 0.0, remaining, notes)

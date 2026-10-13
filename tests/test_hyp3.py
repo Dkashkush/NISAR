@@ -270,3 +270,15 @@ def test_access_and_direction_fallback():
     pairs, notes = H.plan_pairs(AOI_, target={"DESCENDING": nisar}, scenes=_scenes())
     assert len(pairs) == 2 and all(p.direction == "ASCENDING" for p in pairs)
     assert any("instead" in n.text for n in notes)
+
+
+def test_plan_explains_when_dates_do_not_match():
+    # Sentinel-1 images only from Oct 2025 to Feb 2027 in _scenes; NISAR dates long after them
+    late = [date(2028, 1, 1) + timedelta(days=12 * k) for k in range(4)]
+    pairs, notes = H.plan_pairs(AOI_, target={"ASCENDING": late}, scenes=_scenes())
+    assert not pairs
+    assert any(n.text.startswith("Sentinel-1 images over the area: 90 on") and "ascending track 28" in n.text
+               for n in notes)
+    assert any("none that form pairs" in n.text and "2028-01-01" in n.text for n in notes)
+    res = H.order(_client(FakeHyP3()), AOI_, pairs)
+    assert res.submitted == [] and "nothing was sent" in res.notes[0].text
