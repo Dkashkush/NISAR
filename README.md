@@ -103,7 +103,7 @@ needs: `requirements.txt`, `packages.txt`, `.streamlit/config.toml` and a `Docke
 build-tested, and the container was tested with two simultaneous visitors.
 
 Hosted mode is switched on with `SARCOMPARE_ONLINE=1`; the Dockerfile sets it, and on Streamlit Cloud you add
-it under *Secrets/Environment*. In hosted mode:
+it under *Secrets* (environment variables and Streamlit secrets both work). In hosted mode:
 - each visitor's Earthdata token is used only for their own session and is never stored;
 - uploads and results are kept per visitor;
 - "Local files" is hidden;
@@ -111,8 +111,8 @@ it under *Secrets/Environment*. In hosted mode:
 
 | Host | Cost | How |
 |---|---|---|
-| **Hugging Face Spaces** (recommended; automatic deploys from GitHub, see [the guide](docs/deploy-huggingface.md)) | Free CPU tier with generous memory | New Space → SDK **Docker** → push this repo. Add this header at the top of the Space's README: `---` / `sdk: docker` / `app_port: 7860` / `---` |
-| **Streamlit Community Cloud** | Free, smaller memory | share.streamlit.io → New app → this GitHub repo, branch, main file `app.py`. Set `SARCOMPARE_ONLINE = "1"` in Advanced settings → Secrets |
+| **Streamlit Community Cloud** (recommended, free; see [the guide](docs/deploy-streamlit-cloud.md)) | Free, about 1-2.7 GB memory | share.streamlit.io → Create app → this GitHub repo, branch, main file `app.py`. Set `SARCOMPARE_ONLINE = "1"` in Advanced settings → Secrets |
+| **Hugging Face Spaces** (automatic deploys from GitHub, see [the guide](docs/deploy-huggingface.md)) | Needs a PRO subscription since October 2026 | Actions → **Deploy to Hugging Face Space** → Run workflow |
 | **Render / Fly.io / any Docker host** | Free or cheap tiers | Deploy the `Dockerfile`; the app listens on `$PORT` |
 
 What to expect online:

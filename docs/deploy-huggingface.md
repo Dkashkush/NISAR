@@ -1,4 +1,9 @@
-# Put the app online with Hugging Face Spaces (free)
+# Put the app online with Hugging Face Spaces
+
+> **October 2026:** Hugging Face now requires a PRO subscription to run Docker Spaces, even on the free "CPU
+> basic" hardware (the upload is refused with "402 Payment Required"). For a free option, use
+> [Streamlit Community Cloud](deploy-streamlit-cloud.md). With PRO, the steps below still work; the deploy
+> workflow now runs only when you start it from the Actions tab.
 
 There are two ways. **Option A (automatic, recommended):** GitHub publishes the app for you and updates it
 on every change. **Option B (manual):** drag and drop the files.

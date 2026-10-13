@@ -1,5 +1,8 @@
-# Publishes OpenSAR Explorer to a Hugging Face Space on every push to the default branch
-# (or on demand from the Actions tab).
+# Publishes OpenSAR Explorer to a Hugging Face Space, on demand from the Actions tab.
+#
+# Note (October 2026): Hugging Face now requires a PRO subscription to run Docker Spaces, even on the free
+# "CPU basic" hardware. Without PRO the upload is refused ("402 Payment Required"). The free alternative is
+# Streamlit Community Cloud: see docs/deploy-streamlit-cloud.md.
 #
 # One-time setup:
 #   1. Create a free Hugging Face account and a token with "Write" access
@@ -15,7 +18,6 @@ name: Deploy to Hugging Face Space
 
 on:
   workflow_dispatch:
-  push:
 
 concurrency:
   group: hf-space-deploy
@@ -59,10 +61,21 @@ jobs:
           import os
           from huggingface_hub import HfApi
 
+          import sys
+          from huggingface_hub.errors import HfHubHTTPError
+
           api = HfApi(token=os.environ["HF_TOKEN"])
           space = os.environ.get("HF_SPACE") or f"{api.whoami()['name']}/opensar-explorer"
           # New Spaces start private (only you can see them); existing Spaces keep their visibility.
-          api.create_repo(space, repo_type="space", space_sdk="docker", private=True, exist_ok=True)
+          try:
+              api.create_repo(space, repo_type="space", space_sdk="docker", private=True, exist_ok=True)
+          except HfHubHTTPError as e:
+              if getattr(e.response, "status_code", None) == 402:
+                  print("::error title=Hugging Face needs a PRO subscription::Hugging Face now charges for Docker "
+                        "Spaces (PRO subscription). Either subscribe at https://huggingface.co/pro and run this "
+                        "again, or use the free Streamlit Community Cloud: see docs/deploy-streamlit-cloud.md.")
+                  sys.exit(1)
+              raise
           api.upload_folder(
               folder_path="dist/hf-space",
               repo_id=space,

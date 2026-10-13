@@ -23,10 +23,25 @@ STAGES = {"search": "Finding satellite data", "download": "Downloading", "load":
           "figures": "Drawing maps", "report": "Writing the report"}
 UPLOADS = Path("data/uploads")
 NISAR_LAUNCH = date(2025, 7, 30)
+
+
+def _setting(name: str, default: str) -> str:
+    """Server setting: an environment variable, else a Streamlit secret (e.g. the Secrets box of Streamlit
+    Community Cloud), else the default."""
+    if name in os.environ:
+        return os.environ[name]
+    try:
+        if st.secrets.load_if_toml_exists():  # quiet when there is no secrets file (local use)
+            return str(st.secrets.get(name, default))
+    except Exception:  # a malformed secrets file must not stop the app
+        pass
+    return default
+
+
 # Hosted mode (set SARCOMPARE_ONLINE=1 on the server): no server folders, per-visitor files, size limits.
-ONLINE = os.environ.get("SARCOMPARE_ONLINE", "") == "1"
-MAX_AOI_KM2 = float(os.environ.get("SARCOMPARE_MAX_AOI_KM2", "2500"))
-MAX_PAIRS_ONLINE = int(os.environ.get("SARCOMPARE_MAX_PAIRS", "8"))
+ONLINE = _setting("SARCOMPARE_ONLINE", "") == "1"
+MAX_AOI_KM2 = float(_setting("SARCOMPARE_MAX_AOI_KM2", "2500"))
+MAX_PAIRS_ONLINE = int(_setting("SARCOMPARE_MAX_PAIRS", "8"))
 
 MODE_DEMO, MODE_REAL, MODE_LOCAL = "Try the demo", "Analyse a real place", "Use files I already have"
 
