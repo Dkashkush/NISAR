@@ -122,16 +122,43 @@ def choose_area():
     from streamlit_folium import st_folium
 
     from sarcompare.aoi import AOI
-    from sarcompare.maps import EXAMPLE_PLACES, bbox_from_drawing, picker_map
+    from sarcompare.maps import EXAMPLE_PLACES, bbox_from_drawing, box_around, find_place, picker_map
 
-    step(2, "Where?", "Choose the area on the map: find your place, then draw a box around it.")
+    step(2, "Where?", "Search for any place, then draw a box around the area you want on the map.")
     side, mapcol = st.columns([2, 3], gap="large")
     with side:
-        options = ["(choose an example place)"] + list(EXAMPLE_PLACES)
+        with st.form("place_search", border=False):
+            q1, q2 = st.columns([3, 1], vertical_alignment="bottom")
+            query = q1.text_input("Search a place", placeholder="e.g. Jakarta, Tehran, Venice, Joshimath")
+            searched = q2.form_submit_button("Search", width="stretch")
+        if searched:
+            try:
+                st.session_state["places"] = find_place(query)
+                if not st.session_state["places"]:
+                    st.warning(f"No place called '{query}' was found. Try adding the country, e.g. 'Delhi, India'.")
+            except OSError:
+                st.session_state["places"] = []
+                st.error("Place search is not reachable right now. Zoom the map by hand, or type coordinates below.")
+        places = st.session_state.get("places") or []
+        if places:
+            names = [p["name"] for p in places]
+            pick = st.selectbox("Found", names, key="place_pick") if len(places) > 1 else names[0]
+            found = places[names.index(pick)]
+            if st.session_state.get("_view_for") != found["name"]:  # new place: move the map there
+                st.session_state["_view_for"] = found["name"]
+                st.session_state["view"] = (found["lat"], found["lon"], 11)
+                st.session_state["bbox"] = None
+            st.caption(f"Map moved to **{found['name']}**. Now draw your box on the map (square ▢ button), or:")
+            if st.button("Use a box around this place", width="stretch"):
+                st.session_state["bbox"] = box_around(found["lat"], found["lon"], found["bbox"],
+                                                      max_km2=min(MAX_AOI_KM2, 900) if ONLINE else 900)
+                st.rerun()
+        options = ["(or choose an example place)"] + list(EXAMPLE_PLACES)
         place = st.selectbox("Example places", options, key="place")
         if place != options[0] and st.session_state.get("_place_applied") != place:
             st.session_state["bbox"] = EXAMPLE_PLACES[place]
             st.session_state["_place_applied"] = place
+            st.session_state["view"] = None
         with st.expander("Type coordinates instead"):
             cur = st.session_state.get("bbox") or (-99.25, 19.25, -98.95, 19.55)
             c1, c2 = st.columns(2)
@@ -142,6 +169,7 @@ def choose_area():
             if st.button("Use these coordinates"):
                 if w < e and s < n:
                     st.session_state["bbox"] = (w, s, e, n)
+                    st.session_state["view"] = None
                 else:
                     st.error("West must be less than East, and South less than North.")
         bbox = st.session_state.get("bbox")
@@ -156,10 +184,10 @@ def choose_area():
         else:
             st.info("No area selected yet.")
     with mapcol:
-        st.markdown("**1.** Find your place: type its name in the search box (top right of the map), or zoom with "
-                    "the mouse wheel.  \n**2.** Click the **square ▢ button** on the left of the map.  \n"
+        st.markdown("**1.** Find your place with the search on the left, or zoom the map with the mouse wheel.  \n"
+                    "**2.** Click the **square ▢ button** on the left of the map.  \n"
                     "**3.** Click and drag to draw a box around your area. Draw again to replace it.")
-        out = st_folium(picker_map(bbox), height=430, use_container_width=True,
+        out = st_folium(picker_map(bbox, view=st.session_state.get("view")), height=430, use_container_width=True,
                         returned_objects=["last_active_drawing"], key="picker")
         drawn = bbox_from_drawing((out or {}).get("last_active_drawing"))
         if drawn and drawn != st.session_state.get("_last_drawn"):

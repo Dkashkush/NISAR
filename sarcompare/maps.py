@@ -7,11 +7,10 @@ import html
 import io
 
 import folium
-from folium.template import Template
 import matplotlib
 import numpy as np
 from branca.colormap import LinearColormap
-from folium.plugins import Draw, Geocoder
+from folium.plugins import Draw
 from pyproj import Transformer
 
 from .plots import THEMES, _diverging
@@ -75,35 +74,68 @@ def _zoom_for(w: float, s: float, e: float, n: float, width_px: int = 800) -> in
     return int(max(2, min(16, math.floor(math.log2(360 * width_px / (256 * span))) - 1)))
 
 
-class _PlaceSearch(Geocoder):
-    """Place search box (OpenStreetMap Nominatim). Pinned to a fixed version: unpinned plugin assets have broken
-    before when a new release moved its files. Wrapped in try/catch and added last, so that if the search script
-    cannot load, the rest of the map (including the drawing tool) still works."""
-
-    _template = Template("""
-        {% macro script(this, kwargs) %}
-            try {
-                var opts_{{ this.get_name() }} = {{ this.options|tojavascript }};
-                opts_{{ this.get_name() }}["geocoder"] = L.Control.Geocoder[opts_{{ this.get_name() }}["provider"]](
-                    opts_{{ this.get_name() }}["providerOptions"]);
-                L.Control.geocoder(opts_{{ this.get_name() }}).on("markgeocode", function (e) {
-                    {{ this._parent.get_name() }}.setView(e.geocode.center, opts_{{ this.get_name() }}["zoom"] || 10);
-                }).addTo({{ this._parent.get_name() }});
-            } catch (err) {
-                console.warn("Place search unavailable:", err);
-            }
-        {% endmacro %}
-    """)
-
-    default_js = [("Control.Geocoder.js",
-                   "https://cdn.jsdelivr.net/npm/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.js")]
-    default_css = [("Control.Geocoder.css",
-                    "https://cdn.jsdelivr.net/npm/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.css")]
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+USER_AGENT = "OpenSAR-Explorer/0.1 (https://github.com/Dkashkush/opensar-explorer)"  # Nominatim asks for one
 
 
-def picker_map(bbox: tuple[float, float, float, float] | None, height_hint: str = "") -> folium.Map:
-    """Map with a rectangle tool; shows the current area if one is set."""
-    if bbox:
+def find_place(query: str, limit: int = 5, fetch=None) -> list[dict]:
+    """Places matching ``query`` from OpenStreetMap (Nominatim): [{name, lat, lon, bbox (W, S, E, N)}].
+
+    ``fetch(url, params, headers) -> parsed JSON`` can be replaced in tests. Raises OSError when the service
+    cannot be reached.
+    """
+    query = (query or "").strip()
+    if not query:
+        return []
+    if fetch is None:
+        import requests
+
+        def fetch(url, params, headers):
+            r = requests.get(url, params=params, headers=headers, timeout=15)
+            r.raise_for_status()
+            return r.json()
+    try:
+        rows = fetch(NOMINATIM_URL, {"q": query, "format": "jsonv2", "limit": limit},
+                     {"User-Agent": USER_AGENT, "Accept-Language": "en"})
+    except Exception as e:  # network errors, HTTP errors, bad JSON
+        raise OSError(f"place search unavailable ({type(e).__name__})") from e
+    out = []
+    for r in rows or []:
+        try:
+            s, n, w, e = (float(v) for v in r["boundingbox"])  # Nominatim order: south, north, west, east
+            out.append({"name": r.get("display_name", query), "lat": float(r["lat"]), "lon": float(r["lon"]),
+                        "bbox": (w, s, e, n)})
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
+
+
+def box_around(lat: float, lon: float, place_bbox=None, max_km2: float = 900.0, default_km: float = 20.0):
+    """A starting box for a found place: its own outline if that is small enough, else a box of ``default_km``
+    (shrunk to fit ``max_km2``) centred on it. Returns (W, S, E, N)."""
+    from sarcompare.aoi import AOI
+
+    if place_bbox:
+        w, s, e, n = place_bbox
+        if e > w and n > s and 1.0 <= AOI.from_bbox(w, s, e, n).area_km2() <= max_km2:
+            return round(w, 4), round(s, 4), round(e, 4), round(n, 4)
+    side = min(default_km, max_km2 ** 0.5)
+    dlat = side / 2 / 111.0
+    dlon = side / 2 / (111.0 * max(np.cos(np.radians(lat)), 0.05))
+    return round(lon - dlon, 4), round(lat - dlat, 4), round(lon + dlon, 4), round(lat + dlat, 4)
+
+
+def picker_map(bbox: tuple[float, float, float, float] | None, height_hint: str = "",
+               view: tuple[float, float, int] | None = None) -> folium.Map:
+    """Map with a rectangle tool; shows the current area if one is set. ``view`` = (lat, lon, zoom) centres the map
+    on a searched place instead."""
+    if view:
+        m = folium.Map(location=[view[0], view[1]], zoom_start=int(view[2]), tiles=None, control_scale=True)
+        if bbox:
+            w, s, e, n = bbox
+            folium.Rectangle([[s, w], [n, e]], color="#1f5f8b", weight=3, fill=True, fill_opacity=0.08,
+                             tooltip="Your area").add_to(m)
+    elif bbox:
         w, s, e, n = bbox
         m = folium.Map(location=[(s + n) / 2, (w + e) / 2], zoom_start=_zoom_for(w, s, e, n, 600), tiles=None,
                        control_scale=True)
@@ -117,8 +149,6 @@ def picker_map(bbox: tuple[float, float, float, float] | None, height_hint: str 
                        "circlemarker": False, "rectangle": {"shapeOptions": {"color": "#d95926"}}},
          edit_options={"edit": False, "remove": False}).add_to(m)
     folium.LayerControl(position="topright", collapsed=True).add_to(m)
-    _PlaceSearch(collapsed=False, position="topright", add_marker=False, zoom=10,
-                 placeholder="Search a place, e.g. Jakarta").add_to(m)  # last: a failure here cannot affect the rest
     return m
 
 
@@ -176,8 +206,10 @@ def results_map(result) -> folium.Map:
                 "no": "Not seen by the other satellite"}[h.seen_by_other]
         popup = (f"<b>{verb} area</b><br>Detected by {html.escape(h.sensor)}<br>Peak {h.peak_mm_yr:+.0f} mm/yr"
                  f"<br>Area {h.area_km2:.1f} km²<br>{seen}")
-        folium.Marker([h.lat, h.lon], popup=folium.Popup(popup, max_width=260), tooltip=f"{verb}: {h.peak_mm_yr:+.0f} mm/yr",
-                      icon=folium.Icon(color="red" if h.peak_mm_yr < 0 else "blue", icon="info-sign")).add_to(moving)
+        colour = "#b3261e" if h.peak_mm_yr < 0 else "#1f5f8b"
+        folium.CircleMarker([h.lat, h.lon], radius=9, color="#ffffff", weight=2, fill=True, fill_color=colour,
+                            fill_opacity=0.95, popup=folium.Popup(popup, max_width=260),
+                            tooltip=f"{verb}: {h.peak_mm_yr:+.0f} mm/yr").add_to(moving)
     g = getattr(result, "gnss", None)
     if g is not None and g.stations:
         layer = folium.FeatureGroup(name="GNSS stations", show=True).add_to(m)
@@ -199,9 +231,11 @@ def results_map(result) -> folium.Map:
             popup = (f"<b>{html.escape(chk.citation)}</b><br>{html.escape(chk.place)} {html.escape(chk.period)}"
                      f"<br>Published: {pub} mm/yr{ours}")
             ok = "consistent" in chk.verdict.values() and "differs" not in chk.verdict.values()
-            folium.Marker([chk.lat, chk.lon], popup=folium.Popup(popup, max_width=280),
-                          tooltip=f"Published: {html.escape(chk.citation)}",
-                          icon=folium.Icon(color="green" if ok else "orange", icon="book")).add_to(layer)
+            # plain circles: icon markers need an icon font that did not load on the hosted app (white boxes)
+            folium.CircleMarker([chk.lat, chk.lon], radius=8, color="#1f2933", weight=3, fill=True,
+                                fill_color="#2e7d32" if ok else "#c77700", fill_opacity=0.95,
+                                popup=folium.Popup(popup, max_width=280),
+                                tooltip=f"Published: {html.escape(chk.citation)}").add_to(layer)
     legend = LinearColormap(DIVERGING, vmin=-lim, vmax=lim)
     legend.caption = "Ground motion, mm/yr (red = sinking, blue = rising)"
     legend.add_to(m)

@@ -1,3 +1,4 @@
+from pathlib import Path
 """Non-browser tests for the parts behind the web interface."""
 
 from sarcompare.maps import EXAMPLE_PLACES, _zoom_for, bbox_from_drawing, picker_map, results_map
@@ -51,3 +52,49 @@ def test_packages_txt_has_only_package_names():
 
     lines = [l.strip() for l in (Path(__file__).parents[1] / "packages.txt").read_text().splitlines() if l.strip()]
     assert lines and all(" " not in l and not l.startswith("#") for l in lines)
+
+
+def test_find_place_and_box_around():
+    from sarcompare.aoi import AOI
+    from sarcompare.maps import box_around, find_place
+
+    def fake(url, params, headers):
+        assert "nominatim" in url and params["q"] == "Venice" and "OpenSAR" in headers["User-Agent"]
+        return [{"display_name": "Venice, Italy", "lat": "45.4371", "lon": "12.3326",
+                 "boundingbox": ["45.38", "45.48", "12.28", "12.40"]}, {"bad": "row"}]
+
+    places = find_place("Venice", fetch=fake)
+    assert len(places) == 1 and places[0]["bbox"] == (12.28, 45.38, 12.40, 45.48)
+    assert find_place("  ", fetch=fake) == []
+    # the place's own outline when it is a sensible size, else a 20 km box (or smaller, to fit the limit)
+    assert box_around(45.4371, 12.3326, places[0]["bbox"]) == (12.28, 45.38, 12.4, 45.48)
+    big = box_around(28.6, 77.2, (60.0, 5.0, 100.0, 40.0), max_km2=900)
+    assert 350 < AOI.from_bbox(*big).area_km2() < 450
+    small = box_around(28.6, 77.2, None, max_km2=100)
+    assert AOI.from_bbox(*small).area_km2() <= 101
+
+    def broken(url, params, headers):
+        raise ConnectionError("offline")
+
+    try:
+        find_place("Venice", fetch=broken)
+        raise AssertionError("expected OSError")
+    except OSError:
+        pass
+
+
+def test_place_search_in_the_app(monkeypatch):
+    from streamlit.testing.v1 import AppTest
+    import sarcompare.maps as maps
+
+    monkeypatch.setattr(maps, "find_place", lambda q, **kw: [
+        {"name": "Venice, Italy", "lat": 45.4371, "lon": 12.3326, "bbox": (12.28, 45.38, 12.40, 45.48)}])
+    at = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=60)
+    at.run()
+    next(r for r in at.radio if "Analyse a real place" in r.options).set_value("Analyse a real place").run()
+    next(t for t in at.text_input if t.label == "Search a place").input("Venice").run()
+    next(b for b in at.button if b.label == "Search").click().run()
+    assert not at.exception
+    assert at.session_state["view"] == (45.4371, 12.3326, 11) and at.session_state["bbox"] is None
+    next(b for b in at.button if b.label == "Use a box around this place").click().run()
+    assert at.session_state["bbox"] == (12.28, 45.38, 12.4, 45.48)
