@@ -101,3 +101,32 @@ def test_window_rate_is_end_minus_start():
     expected = (u[200] - u[100]) / (100 / 365.25)
     assert abs(rate - expected) < 0.002 and sigma < 0.01
     assert V.window_rate(dates[:50], u[:50], start, end) is None
+
+
+def test_gnss_plane_removes_tilt_but_not_a_sign_error():
+    from pyproj import Transformer
+    from sarcompare.processing import RateMap
+    from sarcompare.readers.base import make_da
+
+    x = 500000 + np.arange(60) * 500.0
+    y = 4000000 + np.arange(50)[::-1] * 500.0
+    X, Y = np.meshgrid(x, y)
+    truth = -0.08 * np.exp(-((X - x.mean()) ** 2 + (Y - y.mean()) ** 2) / (2 * 6000.0 ** 2))  # subsidence bowl
+    tilt = 0.03 * (X - x.mean()) / np.ptp(x) - 0.01  # smooth InSAR error + unknown zero
+    to_ll = Transformer.from_crs("EPSG:32611", "EPSG:4326", always_xy=True)
+    rng = np.random.default_rng(1)
+    stations = []
+    for k, (r, c) in enumerate([(5, 5), (5, 50), (45, 8), (40, 55), (25, 30), (12, 28), (35, 15)]):
+        lon, lat = to_ll.transform(x[c], y[r])
+        stations.append(V.GnssStation(f"S{k}", lon, lat, truth[r, c] * 1000 + rng.normal(0, 1), 1.0))
+
+    def rm(v):
+        da = make_da(v, x, y, "EPSG:32611", "rate")
+        return RateMap("NISAR", da, da * 0 + 0.6, da * 0 + 8, 8, 100, date(2026, 1, 1), date(2026, 4, 1), 40, 0.24)
+
+    grid, corr = V.fit_gnss_correction(rm(truth + tilt), stations)
+    assert corr.kind == "plane" and corr.n == 7
+    np.testing.assert_allclose((truth + tilt - grid), truth, atol=0.003)
+    assert max(abs(v) for v in corr.loo.values()) < 6  # mm/yr
+    _, flipped = V.fit_gnss_correction(rm(-truth + tilt), stations)
+    assert flipped.kind == "offset"  # a plane must not paper over a sign error

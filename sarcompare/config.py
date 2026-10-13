@@ -46,6 +46,7 @@ class Config:
     gnss_dir: str = "data/gnss"  # cache for NGL files
     gnss_max_stations: int = 30
     tie_to_gnss: bool = True  # with GNSS and no reference_lonlat: shift each map to match GNSS, making rates absolute
+    gnss_correction: str = "auto"  # "auto": plane through InSAR - GNSS when >= 5 stations are spread out; "offset"
     published_maps: list = field(default_factory=list)  # [{path, label, units, component, sign, incidence_deg,
     #                                                      period_years, citation}]
     published_values: list = field(default_factory=list)  # rates from papers: [{citation, place, lon, lat,

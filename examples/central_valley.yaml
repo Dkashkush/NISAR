@@ -1,8 +1,10 @@
-# Central Valley, California (around Corcoran): well-documented agricultural subsidence from groundwater pumping.
-# Best first real-data test: ready-made Sentinel-1 products exist here (ARIA GUNW / OPERA DISP-S1) and there
-# are many GNSS stations to check against. Needs a free NASA Earthdata login.
+# Central Valley, California (Tulare Lake basin, Corcoran to Kettleman City): well-documented agricultural
+# subsidence from groundwater pumping. Best first real-data test: ready-made Sentinel-1 products exist here
+# (OPERA DISP-S1) and the area reaches the valley edges, so about 9 GNSS stations with current data fall inside
+# (enough to tie the maps to GNSS with a plane and still check each station independently).
+# Needs a free NASA Earthdata login. About 5,200 km², so too large for the hosted web app (limit 2,500 km²).
 name: central_valley
-aoi: [-119.80, 35.90, -119.40, 36.20]   # west, south, east, north (degrees)
+aoi: [-120.00, 35.70, -119.05, 36.25]   # west, south, east, north (degrees)
 start: 2025-10-01
 end: null                        # null = up to today
 
@@ -13,7 +15,7 @@ nisar_apply_ionosphere: true
 s1_source: AUTO                  # tries ARIA GUNW, then OPERA DISP-S1
 s1_flight_direction: null
 
-max_pairs: 6
+max_pairs: 16                    # 16 consecutive 12-day pairs = about 6 months
 min_span_days: 12
 max_span_days: 96
 coherence_threshold: 0.35

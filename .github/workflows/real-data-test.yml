@@ -18,8 +18,8 @@ on:
       max_pairs:
         description: "Image pairs per satellite (more = longer period, less noise)"
         type: choice
-        options: ["4", "6", "8", "12", "16"]
-        default: "8"
+        options: ["4", "8", "16", "24", "32"]
+        default: "16"
 
 concurrency:
   group: real-data-test

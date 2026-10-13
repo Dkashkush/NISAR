@@ -72,6 +72,7 @@ class GnssValidation:
     stations: list[GnssStation]
     stats: dict[str, SensorStats]
     skipped: list[str] = field(default_factory=list)
+    corrections: dict = field(default_factory=dict)  # sensor -> GnssCorrection used to tie the map (if any)
 
 
 def _download(url: str, dest: Path) -> Path:
@@ -270,8 +271,71 @@ def sample_rate(rm: RateMap, lon: float, lat: float, half: int = 1) -> float:
     return float(np.nanmedian(patch)) if np.isfinite(patch).any() else float("nan")
 
 
+MIN_PLANE_STATIONS = 5
+
+
+@dataclass
+class GnssCorrection:
+    """How one rate map was tied to GNSS: a constant shift, or a plane (shift + tilt) when stations allow."""
+
+    kind: str  # "offset" or "plane"
+    n: int
+    shift_mm_yr: float  # value removed at the centre of the area
+    tilt_ew_mm_yr: float = 0.0  # change of the removed plane across the area, west to east
+    tilt_ns_mm_yr: float = 0.0  # south to north
+    loo: dict = field(default_factory=dict)  # site -> leave-one-out residual (mm/yr), plane only
+
+
+def fit_gnss_correction(rm: RateMap, stations: list[GnssStation], mode: str = "auto"
+                        ) -> tuple[np.ndarray, GnssCorrection] | None:
+    """Correction (m/yr, on the map's grid) that makes ``rm`` match GNSS, or None without usable stations.
+
+    InSAR errors that do not cancel over a short period are mostly smooth across the area (troposphere and
+    ionosphere of the first and last dates, orbits). With at least MIN_PLANE_STATIONS stations spread over the area,
+    ``mode="auto"`` removes the best-fitting plane through InSAR - GNSS, as is common practice; otherwise one
+    constant shift. Each station's leave-one-out residual (predicted from a plane through the others) is kept, so
+    the validation stays honest.
+    """
+    tr = Transformer.from_crs("EPSG:4326", rm.rate.rio.crs, always_xy=True)
+    xs, ys = rm.rate.x.values, rm.rate.y.values
+    cx, cy = xs.mean(), ys.mean()
+    pts = []
+    for st in stations:
+        v = sample_rate(rm, st.lon, st.lat)
+        if math.isfinite(v):
+            x, y = tr.transform(st.lon, st.lat)
+            pts.append((st.site, (x - cx) / 1000, (y - cy) / 1000, v - station_rate(st, rm.sensor)))
+    if not pts:
+        return None
+    X = np.array([p[1] for p in pts])
+    Y = np.array([p[2] for p in pts])
+    d = np.array([p[3] for p in pts])
+    width, height = np.ptp(xs) / 1000, np.ptp(ys) / 1000
+    spread = len(pts) >= 2 and np.ptp(X) >= 0.3 * width and np.ptp(Y) >= 0.3 * height
+    g = np.array([station_rate(st, rm.sensor) for st in stations if st.site in {p[0] for p in pts}])
+    i = d + g
+    agrees = not (len(pts) >= 4 and g.std() > 0 and i.std() > 0 and np.corrcoef(g, i)[0, 1] < 0)
+    if mode != "offset" and len(pts) >= MIN_PLANE_STATIONS and spread and agrees:
+        A = np.column_stack([np.ones_like(X), X, Y])
+        coef, *_ = np.linalg.lstsq(A, d, rcond=None)
+        loo = {}
+        for k in range(len(pts)):
+            keep = np.arange(len(pts)) != k
+            ck, *_ = np.linalg.lstsq(A[keep], d[keep], rcond=None)
+            loo[pts[k][0]] = float(d[k] - A[k] @ ck)
+        GX, GY = np.meshgrid((xs - cx) / 1000, (ys - cy) / 1000)
+        grid = (coef[0] + coef[1] * GX + coef[2] * GY) / 1000
+        return grid, GnssCorrection("plane", len(pts), float(coef[0]), float(coef[1] * width),
+                                    float(coef[2] * height), loo)
+    shift = float(np.median(d))
+    # (when InSAR and GNSS disagree in sign at the stations, a plane could hide a sign error: shift only)
+    return np.full(rm.rate.shape, shift / 1000), GnssCorrection("offset", len(pts), shift)
+
+
 def validate_gnss(stations: list[GnssStation], rates: list[RateMap], source: str,
-                  skipped: list[str] | None = None) -> GnssValidation:
+                  skipped: list[str] | None = None, corrections: dict | None = None) -> GnssValidation:
+    """``corrections`` ({sensor: GnssCorrection}): when a map was tied to GNSS with a plane, its errors are the
+    leave-one-out residuals (each station predicted without itself), not the in-sample fit."""
     stats = {}
     for rm in rates:
         for st in stations:
@@ -283,6 +347,10 @@ def validate_gnss(stations: list[GnssStation], rates: list[RateMap], source: str
         d = np.array([st.insar[rm.sensor] - station_rate(st, rm.sensor) for st in both])
         offset = float(np.median(d))
         res = d - offset
+        corr = (corrections or {}).get(rm.sensor)
+        if corr is not None and corr.kind == "plane":
+            res = np.array([corr.loo.get(st.site, float("nan")) for st in both])
+            offset = 0.0
         for st, rv in zip(both, res):
             st.residual[rm.sensor] = float(rv)
         g = np.array([station_rate(st, rm.sensor) for st in both])
@@ -290,7 +358,7 @@ def validate_gnss(stations: list[GnssStation], rates: list[RateMap], source: str
         r = float(np.corrcoef(g, i)[0, 1]) if len(both) >= 3 and g.std() > 0 and i.std() > 0 else float("nan")
         rmse = float(np.sqrt(np.mean(res ** 2))) if len(both) >= 2 else float("nan")
         stats[rm.sensor] = SensorStats(len(both), offset, rmse, float(np.mean(np.abs(res))), r)
-    return GnssValidation(source, stations, stats, skipped or [])
+    return GnssValidation(source, stations, stats, skipped or [], dict(corrections or {}))
 
 
 # ---------------------------------------------------------------------------

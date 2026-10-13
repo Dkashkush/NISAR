@@ -43,6 +43,7 @@ class RunResult:
     nisar_rate: RateMap | None = None
     s1_rate: RateMap | None = None
     reference: Reference | None = None
+    gnss_corrections: dict = field(default_factory=dict)  # sensor -> validate.GnssCorrection (when tied to GNSS)
     comparison: Comparison | None = None
     inside: np.ndarray | None = None
     notes: list[Note] = field(default_factory=list)
@@ -243,8 +244,8 @@ class Pipeline:
         return self._gnss_cache
 
     def _tie_to_gnss(self, ref: Reference) -> list[Note]:
-        """Shift both area-referenced maps so they match GNSS (absolute rates). Both or neither are tied."""
-        from .validate import sample_rate, station_rate
+        """Make both area-referenced maps match GNSS (absolute rates). Both or neither are tied."""
+        from .validate import fit_gnss_correction
 
         a, b = self.result.nisar_rate, self.result.s1_rate
         try:
@@ -252,28 +253,33 @@ class Pipeline:
         except Exception as e:  # network or file problems: keep the area reference
             return [Note("reference", WARN, f"Could not fetch GNSS to make the rates absolute "
                                             f"({type(e).__name__}: {e}); zero stays the area median.")]
-        ties = {}
-        for rm in (a, b):
-            d = [sample_rate(rm, st.lon, st.lat) - station_rate(st, rm.sensor) for st in stations]
-            d = [v for v in d if math.isfinite(v)]
-            if d:
-                ties[rm.sensor] = (float(np.median(d)), len(d))
-        if len(ties) < 2:
+        fits = {rm.sensor: fit_gnss_correction(rm, stations, self.cfg.gnss_correction) for rm in (a, b)}
+        if any(f is None for f in fits.values()):
             return [Note("reference", INFO, "No GNSS station has valid data from both satellites, so the rates stay "
                                             "relative (zero = the area median).")]
         for rm in (a, b):
-            rm.rate = rm.rate - ties[rm.sensor][0] / 1000
+            rm.rate = rm.rate - fits[rm.sensor][0]
+        self.result.gnss_corrections = {k: f[1] for k, f in fits.items()}
         ref.mode = "gnss"
-        n = min(k for _, k in ties.values())
-        lvl = INFO if n >= 2 else WARN
-        detail = ", ".join(f"{s} {off:+.0f} mm/yr ({k} station{'s' if k > 1 else ''})" for s, (off, k) in ties.items())
-        text = (f"The rates are tied to GNSS ({source}), so they are absolute: zero means no vertical motion. "
-                f"Shift applied to match the GNSS stations: {detail}; the shift is the motion of the area median "
-                "itself, with the sign reversed.")
-        if n < 2:
-            text += (" With a single station the whole map rests on that one point; its own local motion or noise "
-                     "shifts every value.")
-        return [Note("reference", lvl, text)]
+        notes = []
+        for sensor, (_, c) in fits.items():
+            many = f"{c.n} station{'s' if c.n > 1 else ''}"
+            if c.kind == "plane":
+                text = (f"{sensor} is tied to GNSS ({source}) with a plane through {many}: shift {c.shift_mm_yr:+.0f} "
+                        f"mm/yr at the centre, tilt {c.tilt_ew_mm_yr:+.0f} mm/yr west→east and {c.tilt_ns_mm_yr:+.0f} "
+                        "mm/yr south→north removed. Over short periods most InSAR error is such a smooth tilt "
+                        "(atmosphere of the first and last dates); the GNSS check below predicts each station "
+                        "without using it.")
+                notes.append(Note("reference", INFO, text))
+            else:
+                text = (f"{sensor} is tied to GNSS ({source}) with one shift of {c.shift_mm_yr:+.0f} mm/yr from {many}, "
+                        "so rates are absolute (zero = no vertical motion). Large-scale tilts from the atmosphere "
+                        "remain; with 5 or more stations spread over the area they would be removed too.")
+                if c.n < 2:
+                    text += (" With a single station the whole map rests on that one point; its own local motion "
+                             "or noise shifts every value.")
+                notes.append(Note("reference", INFO if c.n >= 2 else WARN, text))
+        return notes
 
     def reference_and_compare(self) -> Comparison:
         a, b = self.result.nisar_rate, self.result.s1_rate
@@ -282,7 +288,15 @@ class Pipeline:
         apply_reference(b, ref)
         notes = reference_notes(ref, a, b)
         if ref.mode == "area" and self.cfg.gnss and self.cfg.tie_to_gnss:
-            notes += self._tie_to_gnss(ref)
+            ra, rb = a.rate.values, b.rate.values
+            joint = np.isfinite(ra) & np.isfinite(rb) & self.result.inside
+            r0 = float(np.corrcoef(ra[joint], rb[joint])[0, 1]) if joint.sum() > 10 else float("nan")
+            if math.isfinite(r0) and r0 < -0.3:  # a GNSS fit could partly hide a sign error: resolve that first
+                notes.append(Note("reference", WARN, "The two maps are anti-correlated, which usually means a sign "
+                                                     "setting is wrong, so they are not tied to GNSS until that is "
+                                                     "resolved."))
+            else:
+                notes += self._tie_to_gnss(ref)
         self.result.reference = ref
         self.emit("reference", "Put both rate maps on a common reference", notes)
         c = compare(a, b, self.result.inside)
@@ -300,7 +314,7 @@ class Pipeline:
             notes: list[Note] = []
             try:
                 stations, skipped, source = self._gnss_stations()
-                r.gnss = V.validate_gnss(stations, rates, source, skipped)
+                r.gnss = V.validate_gnss(stations, rates, source, skipped, corrections=r.gnss_corrections)
                 notes = gnss_notes(r.gnss, rates, tied=r.reference is not None and r.reference.mode == "gnss")
             except Exception as e:  # network or file problems must not lose the whole comparison
                 notes = [Note("validate", WARN, f"GNSS validation failed: {type(e).__name__}: {e}")]

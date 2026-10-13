@@ -159,8 +159,8 @@ def gnss_notes(gv, rates: list[RateMap], tied: bool = False) -> list[Note]:
         add(WARN, f"No GNSS stations with usable data were found inside the AOI ({gv.source}). Enlarge the AOI "
                   "or supply a CSV of published station velocities.")
         return notes
-    how = ("The maps were tied to these stations (one constant shift per satellite), so the errors below measure "
-           "how well the pattern matches, not the overall level." if tied else
+    how = ("The maps were tied to these stations (a shift, plus a tilt where enough stations allow), so the errors "
+           "below measure how well the local pattern matches." if tied else
            "One constant offset per sensor is removed because InSAR rates are relative to the reference point.")
     add(INFO, f"{len(gv.stations)} GNSS station(s) from {gv.source}. GNSS measures absolute 3-D motion at a point, "
               f"independently of radar, so it is the standard benchmark for InSAR. {how}")
@@ -182,8 +182,10 @@ def gnss_notes(gv, rates: list[RateMap], tied: bool = False) -> list[Note]:
         noise = rm.noise_rate * 1000 if math.isfinite(rm.noise_rate) else float("nan")
         expected = math.hypot(noise, 2.0) if math.isfinite(noise) else float("nan")
         r_txt = f", r = {s.r:.2f}" if math.isfinite(s.r) else ""
-        base = (f"{rm.sensor} vs GNSS vertical: RMSE {s.rmse_mm_yr:.1f} mm/yr at {s.n} stations{r_txt} "
-                f"(offset removed {s.offset_mm_yr:+.1f} mm/yr).")
+        corr = getattr(gv, "corrections", {}).get(rm.sensor)
+        how_err = ("leave-one-out: each station predicted from a GNSS plane fitted without it"
+                   if corr is not None and corr.kind == "plane" else f"offset removed {s.offset_mm_yr:+.1f} mm/yr")
+        base = f"{rm.sensor} vs GNSS vertical: RMSE {s.rmse_mm_yr:.1f} mm/yr at {s.n} stations{r_txt} ({how_err})."
         if math.isfinite(expected) and s.rmse_mm_yr <= 1.5 * expected:
             add(GOOD, base + f" This is within what the InSAR noise (~{noise:.0f} mm/yr) predicts, so {rm.sensor} "
                              "agrees with GNSS.")

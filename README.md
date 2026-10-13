@@ -175,6 +175,7 @@ For areas outside ARIA/OPERA coverage (e.g. India), use HyP3 on-demand products 
 | `max_pairs`, `min_span_days`, `max_span_days` | How many pairs, and how long each may be |
 | `reference_lonlat` | A point you know is stable (bedrock, a GNSS station). Empty = area median, tied to GNSS if on |
 | `tie_to_gnss` | With GNSS on and no reference point: make the rates absolute by matching GNSS (default true) |
+| `gnss_correction` | `auto` (plane through InSAR − GNSS with ≥ 5 spread-out stations, else a shift) or `offset` |
 | `gnss` | `NGL` (automatic GNSS), a path to a CSV (`site,lon,lat,up_mm_yr,up_sigma_mm_yr`), or empty |
 | `published_maps` | List of `{path, label, units, component: vertical/LOS, sign, incidence_deg, period}` |
 | `project_to_vertical` | LOS → vertical, assuming no horizontal motion |
@@ -206,10 +207,16 @@ InSAR should always be checked against something independent. The app supports t
    **same period as the InSAR**;
 4. samples both InSAR maps at each station.
 
-InSAR is relative, so one constant offset per sensor is removed: by default the maps themselves are shifted
-to match the stations, which makes every rate absolute (important in basins where the whole area sinks, such
-as the Central Valley). The app then reports RMSE and correlation, and says whether the misfit is within what
-the InSAR noise predicts. With a single station the map rests on that one point, and the app says so.
+InSAR is relative, so by default the maps themselves are tied to the stations, which makes every rate
+absolute (important in basins where the whole area sinks, such as the Central Valley). With 5 or more stations
+spread over the area, the tie is a plane (shift plus tilt): over periods of a few months most InSAR error is a
+smooth tilt from the atmosphere of the first and last dates. The errors are then reported leave-one-out (each
+station predicted from a plane fitted without it), so the check stays honest. With fewer stations the tie is
+one shift. The app reports RMSE and correlation, and says whether the misfit is within what the InSAR noise
+predicts. A plane is never used when InSAR and GNSS disagree in sign, because it could hide a sign error.
+
+GNSS rates are measured over each satellite's own dates (position at the end minus position at the start,
+which is exactly what a chain of InSAR pairs measures), so seasonal motion does not bias the comparison.
 
 **Published GNSS tables.** Many papers list station velocities. Put them in a CSV
 (`site,lon,lat,up_mm_yr,up_sigma_mm_yr`) and set `gnss: that.csv`.
