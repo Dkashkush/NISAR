@@ -206,7 +206,7 @@ def gnss_notes(gv, rates: list[RateMap], tied: bool = False) -> list[Note]:
         add(INFO, f"Largest misfit at station {worst.site} "
                   + ", ".join(f"{k} {v:+.0f} mm/yr" for k, v in worst.residual.items())
                   + ". Look at that station's time series and surroundings before trusting either value there.")
-    if any(st.note.startswith("too little") for st in gv.stations):
+    if any(st.note.startswith("too little") and not st.window for st in gv.stations):
         add(INFO, "Some stations had too little data in the InSAR period, so their long-term rates were used. "
                   "Seasonal or accelerating motion can make those differ from the InSAR rates.")
     for msg in gv.skipped[:5]:

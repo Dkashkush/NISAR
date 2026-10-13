@@ -13,7 +13,7 @@ s1_source: AUTO                  # AUTO | ARIA_S1_GUNW | OPERA_DISP_S1 (North Am
 # s1_dir: data/hyp3_jobs         # when s1_source: LOCAL
 s1_flight_direction: null
 
-max_pairs: 8                     # per sensor
+max_pairs: 16                    # per sensor; 16 consecutive 12-day pairs = about 6 months
 min_span_days: 12
 max_span_days: 96
 coherence_threshold: 0.35

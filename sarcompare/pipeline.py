@@ -272,9 +272,14 @@ class Pipeline:
                         "without using it.")
                 notes.append(Note("reference", INFO, text))
             else:
+                why = {"sign": "a plane was not used because InSAR and GNSS look opposite in sign at the stations, "
+                               "and a plane could hide such an error",
+                       "spread": "the stations are too bunched together to fix a tilt",
+                       "mode": "gnss_correction is set to offset",
+                       "few": "with 5 or more stations spread over the area they would be removed too"}[c.why_offset]
                 text = (f"{sensor} is tied to GNSS ({source}) with one shift of {c.shift_mm_yr:+.0f} mm/yr from {many}, "
-                        "so rates are absolute (zero = no vertical motion). Large-scale tilts from the atmosphere "
-                        "remain; with 5 or more stations spread over the area they would be removed too.")
+                        f"so rates are absolute (zero = no vertical motion). Large-scale tilts from the atmosphere "
+                        f"remain; {why}.")
                 if c.n < 2:
                     text += (" With a single station the whole map rests on that one point; its own local motion "
                              "or noise shifts every value.")

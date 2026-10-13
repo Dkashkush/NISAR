@@ -234,6 +234,8 @@ def ngl_stations(aoi: AOI, start: date, end: date, cache: str | Path, max_statio
             if wr is not None:
                 st.window[sensor] = {"up_mm_yr": wr[0] * 1000, "up_sigma_mm_yr": wr[1] * 1000,
                                      "period": f"{w0}→{w1}"}
+        if windows and len(st.window) == len(windows):
+            st.note = ""  # every comparison uses the rate over that satellite's own dates
         stations.append(st)
     if len(cands) > max_stations:
         skipped.append(f"{len(cands) - max_stations} more stations not used (max_stations = {max_stations})")
@@ -284,6 +286,7 @@ class GnssCorrection:
     tilt_ew_mm_yr: float = 0.0  # change of the removed plane across the area, west to east
     tilt_ns_mm_yr: float = 0.0  # south to north
     loo: dict = field(default_factory=dict)  # site -> leave-one-out residual (mm/yr), plane only
+    why_offset: str = ""  # why no plane: "few" stations, poor "spread", likely "sign" error, or "mode" = offset
 
 
 def fit_gnss_correction(rm: RateMap, stations: list[GnssStation], mode: str = "auto"
@@ -313,10 +316,14 @@ def fit_gnss_correction(rm: RateMap, stations: list[GnssStation], mode: str = "a
     width, height = np.ptp(xs) / 1000, np.ptp(ys) / 1000
     spread = len(pts) >= 2 and np.ptp(X) >= 0.3 * width and np.ptp(Y) >= 0.3 * height
     g = np.array([station_rate(st, rm.sensor) for st in stations if st.site in {p[0] for p in pts}])
-    i = d + g
-    agrees = not (len(pts) >= 4 and g.std() > 0 and i.std() > 0 and np.corrcoef(g, i)[0, 1] < 0)
-    if mode != "offset" and len(pts) >= MIN_PLANE_STATIONS and spread and agrees:
-        A = np.column_stack([np.ones_like(X), X, Y])
+    A = np.column_stack([np.ones_like(X), X, Y])
+    # Sign check: InSAR - GNSS should be the smoother (planar) field. If InSAR + GNSS fits a plane much better, the
+    # InSAR sign is probably flipped, and a plane through the differences would partly hide that.
+    flipped = False
+    if len(pts) >= MIN_PLANE_STATIONS and g.std() > 0:
+        rss = [float(np.sum((v - A @ np.linalg.lstsq(A, v, rcond=None)[0]) ** 2)) for v in (d, d + 2 * g)]
+        flipped = rss[1] < 0.5 * rss[0]
+    if mode != "offset" and len(pts) >= MIN_PLANE_STATIONS and spread and not flipped:
         coef, *_ = np.linalg.lstsq(A, d, rcond=None)
         loo = {}
         for k in range(len(pts)):
@@ -328,8 +335,9 @@ def fit_gnss_correction(rm: RateMap, stations: list[GnssStation], mode: str = "a
         return grid, GnssCorrection("plane", len(pts), float(coef[0]), float(coef[1] * width),
                                     float(coef[2] * height), loo)
     shift = float(np.median(d))
-    # (when InSAR and GNSS disagree in sign at the stations, a plane could hide a sign error: shift only)
-    return np.full(rm.rate.shape, shift / 1000), GnssCorrection("offset", len(pts), shift)
+    why = ("sign" if flipped else "spread" if len(pts) >= MIN_PLANE_STATIONS and not spread
+           else "mode" if mode == "offset" else "few")
+    return np.full(rm.rate.shape, shift / 1000), GnssCorrection("offset", len(pts), shift, why_offset=why)
 
 
 def validate_gnss(stations: list[GnssStation], rates: list[RateMap], source: str,
