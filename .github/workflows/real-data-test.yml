@@ -52,19 +52,44 @@ jobs:
       - name: Install
         run: pip install -e .
 
-      - name: Check the Earthdata login
+      - name: Check the Earthdata login (opens one real file per satellite)
         run: |
           python - <<'PY'
-          import sys
+          import os, sys
+          from sarcompare.config import Config
           from sarcompare.download import describe_token, make_session
-          import os
+          from sarcompare.remote import AccessError, probe
+          from sarcompare.search import search_nisar, search_sentinel1
+
           print("Token:", describe_token(os.environ.get("EARTHDATA_TOKEN")))
-          try:
-              make_session()
-          except Exception as e:
-              print(f"::error::{e}")
-              sys.exit(1)
-          print("Earthdata login OK")
+          session = make_session()
+          ok, why = session.token_check or (True, "not used (logged in another way)")
+          print("Earthdata pre-check:", why if ok else f"{why} (not fatal; testing real files next)")
+          cfg = Config.from_yaml(f"examples/{os.environ['SITE']}.yaml")
+          aoi = cfg.get_aoi()
+          finders = [("NISAR", lambda: search_nisar(aoi, cfg.start, cfg.end, max_results=3)),
+                     ("Sentinel-1 ARIA", lambda: search_sentinel1(aoi, "ARIA_S1_GUNW", cfg.start, cfg.end, max_results=3)),
+                     ("Sentinel-1 OPERA", lambda: search_sentinel1(aoi, "OPERA_DISP_S1", cfg.start, cfg.end, max_results=3))]
+          refused = False
+          for label, find in finders:
+              try:
+                  products = [p for p in find() if p.url]
+              except Exception as e:
+                  print(f"::warning title={label} search::{type(e).__name__}: {e}")
+                  continue
+              if not products:
+                  print(f"{label}: no products here to test")
+                  continue
+              p = products[0]
+              try:
+                  final, size = probe(p.url, session)
+                  print(f"{label}: OK, opened {p.url.rsplit('/', 1)[-1]} ({size / 1e9:.2f} GB); partial reads work")
+              except AccessError as e:
+                  refused = True
+                  print(f"::error title={label} file refused::{e}")
+              except Exception as e:
+                  print(f"::warning title={label}::{type(e).__name__}: {e} (the file will be downloaded in full instead)")
+          sys.exit(1 if refused else 0)
           PY
 
       - name: Prepare disk space

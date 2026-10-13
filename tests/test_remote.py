@@ -13,7 +13,8 @@ from sarcompare.aoi import AOI
 from sarcompare.demo import DEMO_BBOX
 from sarcompare.products import NISAR, SENTINEL1
 from sarcompare.readers import read_product
-from sarcompare.remote import is_streamable, open_remote, probe
+from sarcompare.download import _check_not_login_page, make_session
+from sarcompare.remote import AccessError, is_streamable, open_remote, probe
 from sarcompare.search import scan_local
 
 
@@ -28,6 +29,22 @@ class RangeHandler(SimpleHTTPRequestHandler):
         self.send_error(403)
 
     def do_GET(self):
+        if self.path.startswith("/needs-login/"):  # like ASF when the token is not accepted
+            self.send_response(302)
+            self.send_header("Location", "/login-page")
+            self.end_headers()
+            return
+        if self.path == "/login-page":
+            body = b"<!DOCTYPE html><html><body>Earthdata Login</body></html>"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path.startswith("/forbidden/"):
+            self.send_error(403)
+            return
         if self.path.startswith("/redirect/"):
             self.send_response(302)
             self.send_header("Location", self.path[len("/redirect"):] + "?X-Amz-Signature=abc%2Fdef")
@@ -93,3 +110,32 @@ def test_probe_reports_http_errors(server):
     base, _ = server
     with pytest.raises(RuntimeError):
         probe(f"{base}/missing.h5", requests.Session())
+
+
+def test_probe_explains_login_and_permission_problems(server):
+    base, _ = server
+    with pytest.raises(AccessError, match="login page.*Authorized Apps"):
+        probe(f"{base}/needs-login/NISAR_L2_GUNW.h5", requests.Session())
+    with pytest.raises(AccessError, match="HTTP 403"):
+        probe(f"{base}/forbidden/NISAR_L2_GUNW.h5", requests.Session())
+    # a refused login must stop the run, not be skipped like a bad file (see Pipeline.load_and_stack)
+    assert not issubclass(AccessError, (ValueError, KeyError, OSError, RuntimeError))
+
+
+def test_saved_login_page_is_caught(tmp_path):
+    page = tmp_path / "NISAR_L2_GUNW.h5"
+    page.write_bytes(b"\n  <!DOCTYPE html><html>Earthdata Login</html>")
+    with pytest.raises(AccessError):
+        _check_not_login_page(page)
+    assert not page.exists()
+    good = tmp_path / "ok.h5"
+    good.write_bytes(b"\x89HDF\r\n\x1a\n" + b"\0" * 100)
+    _check_not_login_page(good)
+
+
+def test_token_used_even_when_precheck_fails(monkeypatch):
+    monkeypatch.setattr("sarcompare.download.check_token", lambda session, token: (False, "HTTP 401"))
+    s = make_session(' "Bearer abc.def.ghi" ')
+    assert s.headers["Authorization"] == "Bearer abc.def.ghi"
+    assert s.token_check == (False, "HTTP 401")
+    assert "earthdatacloud.nasa.gov" in s.auth_domains

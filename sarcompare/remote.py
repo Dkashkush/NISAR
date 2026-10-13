@@ -12,6 +12,7 @@ first request, because signed S3 addresses usually refuse the HEAD request fsspe
 from __future__ import annotations
 
 from contextlib import contextmanager
+from urllib.parse import urlparse
 
 STREAMABLE_SUFFIXES = (".h5", ".nc", ".he5", ".hdf5")
 
@@ -20,12 +21,52 @@ def is_streamable(url: str | None) -> bool:
     return bool(url) and url.split("?")[0].lower().endswith(STREAMABLE_SUFFIXES)
 
 
+class AccessError(Exception):
+    """The server refused the file (login, permission). Downloading it in full would fail the same way."""
+
+
+AUTHORIZE_HELP = (
+    "Fix: sign in at https://urs.earthdata.nasa.gov, open Applications > Authorized Apps, and make sure "
+    "'Alaska Satellite Facility Data Access' is listed (if not: Approve More Applications, search 'Alaska "
+    "Satellite Facility', Authorize). Signing in once at https://search.asf.alaska.edu does the same. "
+    "If the token is older than 60 days, generate a new one and save it again.")
+
+
+def _host(url: str) -> str:
+    return urlparse(url).hostname or "?"
+
+
+def hops(r) -> str:
+    """Redirect chain as host names and status codes only (signed addresses are not shown)."""
+    steps = [*getattr(r, "history", []), r]
+    return " -> ".join(f"{_host(x.url)} ({x.status_code})" for x in steps)
+
+
+def access_problem(r) -> str | None:
+    """Plain-language reason when a response is a refusal or a login page instead of the file."""
+    host = _host(r.url)
+    html = "text/html" in r.headers.get("Content-Type", "").lower()
+    if host.endswith("urs.earthdata.nasa.gov") or (html and r.status_code in (200, 206)):
+        return ("NASA Earthdata answered with its login page instead of the file, so the token was not "
+                f"accepted for ASF downloads [{hops(r)}]. " + AUTHORIZE_HELP)
+    if r.status_code == 401:
+        return f"the token was refused (HTTP 401) [{hops(r)}]. It may be expired or revoked. " + AUTHORIZE_HELP
+    if r.status_code == 403:
+        return (f"access refused (HTTP 403) [{hops(r)}]. The account may still need to approve ASF's application "
+                "or a data-use agreement; download one file by hand at https://search.asf.alaska.edu and "
+                "accept any prompts. " + AUTHORIZE_HELP)
+    return None
+
+
 def probe(url: str, session, timeout: float = 60) -> tuple[str, int]:
     """Follow redirects with the authenticated session; return (final URL, file size in bytes)."""
     r = session.get(url, headers={"Range": "bytes=0-0"}, stream=True, allow_redirects=True, timeout=timeout)
     try:
+        problem = access_problem(r)
+        if problem:
+            raise AccessError(problem)
         if r.status_code >= 400:
-            raise RuntimeError(f"HTTP {r.status_code} when opening {url.split('?')[0]}")
+            raise RuntimeError(f"HTTP {r.status_code} when opening {url.split('?')[0]} [{hops(r)}]")
         if r.status_code != 206:
             raise RuntimeError("the server does not support partial reads (HTTP range requests)")
         content_range = r.headers.get("Content-Range", "")

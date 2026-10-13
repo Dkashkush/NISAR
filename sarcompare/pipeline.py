@@ -121,6 +121,12 @@ class Pipeline:
         if getattr(self, "_asf_session", None) is None:
             from .download import make_session
             self._asf_session = make_session(self.cfg.earthdata_token)
+            check = getattr(self._asf_session, "token_check", None)
+            if check and not check[0]:
+                self.emit("download", "Earthdata's token pre-check failed; trying the token on the data anyway",
+                          [Note("download", WARN, f"Earthdata's token pre-check answered {check[1]}. Some valid "
+                                                  "tokens fail this check, so the files are tried anyway; if they "
+                                                  "are refused, the next message says how to fix it.")])
         return self._asf_session
 
     def download(self) -> None:
@@ -158,13 +164,13 @@ class Pipeline:
                   nisar_sign=cfg.nisar_sign, s1_sign=cfg.s1_sign)
         if p.local_path is not None:
             return read_product(p, self.aoi, **kw)
-        from .remote import open_remote
+        from .remote import AccessError, open_remote
 
         try:
             with open_remote(p.url, self._session()) as fobj:
                 return read_product(p, self.aoi, fileobj=fobj, **kw)
-        except ValueError:
-            raise  # e.g. the product does not cover the area: downloading would not help
+        except (ValueError, AccessError):
+            raise  # the product does not cover the area, or the login was refused: downloading would not help
         except Exception as e:  # network / server problems: fall back to downloading the file
             self.emit("load", f"Remote read failed for {p.name}; downloading it instead",
                       [Note("load", INFO, f"Remote read of {p.name} failed ({type(e).__name__}: {e}); "

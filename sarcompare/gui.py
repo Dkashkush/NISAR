@@ -300,6 +300,8 @@ def build_config(mode, bbox, period, checks, token, adv, local_dirs) -> Config:
 def friendly_error(e: Exception) -> str:
     msg, name = str(e), type(e).__name__
     low = msg.lower()
+    if name == "AccessError":  # already a plain-language reason with the fix
+        return f"Could not get the data files: {msg}"
     if "credential" in low or ("token" in low and ("invalid" in low or "unauthor" in low)):
         return "Your Earthdata token was not accepted. Check that you pasted all of it, or generate a new one."
     if name in ("ConnectionError", "ProxyError", "Timeout", "ConnectTimeout") or "cmr.earthdata" in low:
