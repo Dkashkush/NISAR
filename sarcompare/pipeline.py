@@ -488,13 +488,14 @@ class Pipeline:
         from . import validate as V
 
         cfg, r = self.cfg, self.result
-        if not cfg.egms_token or not egms.in_europe(self.aoi):
+        key = cfg.egms_token or os.environ.get("EGMS_TOKEN")  # the environment: on your own computer only
+        if not key or not egms.in_europe(self.aoi):
             return
         if any(V.egms_defaults(m.get("path", "")) for m in cfg.published_maps):
             return  # EGMS maps given already
         comps = ("U", "E") if any(v is not None for v in r.east.values()) else ("U",)
         try:
-            maps, notes = egms.download(self.aoi, cfg.egms_token, Path(cfg.data_dir) / "egms", comps)
+            maps, notes = egms.download(self.aoi, key, Path(cfg.data_dir) / "egms", comps)
         except Exception as e:  # key refused, no tile, network: the other checks still run
             self.emit("validate", "EGMS maps could not be downloaded",
                       [Note("validate", WARN, f"EGMS: {e}")])
@@ -576,7 +577,8 @@ class Pipeline:
             self.download()
         self.load_and_stack()
         self.reference_and_compare()
-        if self.cfg.gnss or self.cfg.published_maps or self.cfg.published_values or self.cfg.egms_token:
+        if (self.cfg.gnss or self.cfg.published_maps or self.cfg.published_values or self.cfg.egms_token
+                or os.environ.get("EGMS_TOKEN")):
             self.validate()
         self.make_figures()
         self.write_outputs()

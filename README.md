@@ -165,9 +165,12 @@ sarcompare run    examples/mexico_city.yaml     # full workflow + report
 | `ARIA_S1_GUNW` | Selected regions (mainly the US, plus other areas) | Ready-made interferograms |
 | `OPERA_DISP_S1` | North America | Ready-made displacement time series |
 | `HYP3` | **Anywhere** | Interferograms ordered from ASF HyP3 for this area (see below); read remotely |
+| `LICSAR` | Many tectonic and volcanic regions (densest from the Mediterranean to the Himalaya) | Ready-made interferograms from COMET's [LiCSAR](https://doi.org/10.3390/rs12152430); free, no login; read remotely (only the area's window) |
 | `LOCAL` | **Anywhere** | HyP3 zips (or other products) you downloaded yourself, in `s1_dir` |
 
-`AUTO` (the default) tries ARIA, then OPERA in North America, then HyP3 orders for the area.
+`AUTO` (the default) tries ARIA, then OPERA in North America, then HyP3 orders for the area, then LiCSAR.
+LiCSAR frames are found from the Sentinel-1 tracks over the area and the frames' outlines; its files moved to
+`LiCSAR_products.public` in 2025-26, which the app follows.
 
 ### Places without ready-made Sentinel-1 (most of the world outside the US)
 
@@ -190,7 +193,7 @@ Good to know: each job uses free HyP3 processing credits (a monthly allowance; t
 is left before ordering). HyP3 jobs are **publicly visible** (job name = the area's coordinates, the images, and
 the Earthdata user name). The Earthdata token is sent only to the HyP3 API, never to the public storage the
 results are read from. In Europe, the free [EGMS](https://egms.land.copernicus.eu) Sentinel-1 maps are another
-independent check (see Validating against published data).
+independent check, downloaded automatically with a free EGMS key (see Validating against published data).
 
 ### Important settings (`Config` / YAML)
 
@@ -263,7 +266,7 @@ which is exactly what a chain of InSAR pairs measures), so seasonal motion does 
 
 | Product | Region | Component | Units | Sign |
 |---|---|---|---|---|
-| EGMS Ortho (Copernicus): recognised by file name, nothing to fill in | Europe | vertical (`_U_`) or east-west (`_E_`) | mm/yr | + up / + east |
+| EGMS Ortho (Copernicus): **downloaded automatically** with a free EGMS key (the key field in the app, or the `EGMS_TOKEN` environment variable on your own computer), or recognised by file name when uploaded | Europe | vertical (`_U_`) or east-west (`_E_`) | mm/yr | + up / + east |
 | LiCSAR/COMET LiCSBAS velocities | Global (selected frames) | LOS | mm/yr | + toward satellite |
 | OPERA DISP-S1 velocity | North America | LOS | m/yr | + toward satellite |
 | Paper supplementary GeoTIFFs | varies | check the paper | check | check |
@@ -326,6 +329,8 @@ sarcompare/
   search.py       ASF search, local-folder scanning, pair selection, time-overlap notes
   download.py     Earthdata authentication and downloads
   hyp3.py         ordering Sentinel-1 interferograms from ASF HyP3 and finding the finished ones
+  licsar.py       finding LiCSAR (COMET) frames and pairs over an area
+  egms.py         EGMS Ortho tiles for an area, downloaded with a free EGMS key
   readers/        NISAR GUNW (HDF5), ARIA GUNW, OPERA DISP-S1, HyP3 GeoTIFF readers
   processing.py   common grid, rate stacking, noise estimate, reference point, vertical projection
   compare.py      statistics, difference map, hotspot detection
