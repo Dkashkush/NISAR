@@ -7,7 +7,7 @@ import html
 import math
 from datetime import datetime
 
-from . import __author__
+from . import __author__, __copyright__
 from .notes import GOOD, WARN
 
 STAGE_TITLES = {
@@ -264,7 +264,8 @@ def build_report(r) -> str:
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OpenSAR Explorer: Ground Motion report</title><style>{CSS}</style></head>
 <body><main>
-<p class="sub" style="margin:0 0 2px">OpenSAR Explorer · Ground Motion module · created by {e(__author__)}</p>
+<p class="sub" style="margin:0 0 2px">OpenSAR Explorer · Ground Motion module · created by {e(__author__)} ·
+{e(__copyright__)}</p>
 <h1>{e(" vs ".join(sensors) if not single else f"{a.sensor} ground motion")}: {e(cfg.name)}</h1>
 <p class="sub">AOI {w:.3f}–{ea:.3f}°E, {s:.3f}–{n:.3f}°N · grid {cfg.resolution_m:.0f} m ·
 coherence threshold {cfg.coherence_threshold} · {e(a.component)} rates · generated {datetime.now():%Y-%m-%d %H:%M}</p>

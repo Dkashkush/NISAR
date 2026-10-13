@@ -2,7 +2,8 @@
 
 *Created by **Deepa Kumari***
 
-**An open-source platform for exploring the Earth with satellite radar (SAR), explained in plain language.**
+**A platform for exploring the Earth with satellite radar (SAR), explained in plain language.**
+Copyright © 2026 Deepa Kumari. All rights reserved (see [Copyright and licence](#copyright-and-licence)).
 
 OpenSAR Explorer is built as a set of modules. The first, **Ground Motion**, is available now:
 
@@ -73,8 +74,10 @@ search ─► select pairs ─► download ─► load & crop ─► stack into 
 
 ## Quick start: the graphical app (GUI)
 
-Double-click the launcher for your system. The first start installs everything, which takes a few
-minutes and needs Python 3.10+ from python.org:
+Everyone can use the hosted app at https://opensar-explorer.streamlit.app. Running your own copy needs the
+author's permission (see [Copyright and licence](#copyright-and-licence)); with it, double-click the launcher
+for your system. The first start installs everything, which takes a few minutes and needs Python 3.10+ from
+python.org:
 
 | System | Launcher |
 |---|---|
@@ -370,3 +373,21 @@ OpenSAR Explorer is designed to grow beyond ground motion. These modules are **i
 - Backscatter comparison: NISAR GCOV vs OPERA RTC-S1 for vegetation, flooding and soil moisture.
 - Tropospheric correction with weather-model products (e.g. OPERA TROPO) before comparing.
 - Use GNSS east/north velocities and each sensor's LOS vector to validate in LOS, not only vertical.
+
+## Copyright and licence
+
+Copyright © 2026 Deepa Kumari. All rights reserved. The code is published so that it can be read and checked,
+but no licence is granted: copying, running your own copy, changing or redistributing it needs written
+permission (see [LICENSE](LICENSE)). Anyone may use the hosted app at https://opensar-explorer.streamlit.app.
+To ask for permission, for example for teaching or research, contact [Dkashkush](https://github.com/Dkashkush).
+
+Satellite, GNSS and published data belong to their providers and are used under their licences; every report
+lists the credits.
+
+## How to cite
+
+If you use OpenSAR Explorer or its results, please cite it (GitHub shows a "Cite this repository" button,
+from [CITATION.cff](CITATION.cff)):
+
+> Deepa Kumari (2026). *OpenSAR Explorer: comparing NISAR and Sentinel-1 ground motion, with GNSS and published
+> checks* (version 0.1.0) [Software]. https://github.com/Dkashkush/OpenSAR-Explorer

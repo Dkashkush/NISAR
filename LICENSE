@@ -1,0 +1,29 @@
+OpenSAR Explorer (Python package "sarcompare")
+
+Copyright (c) 2026 Deepa Kumari. All rights reserved.
+
+This software, including its source code, documentation, text, figures and design, is the property of
+Deepa Kumari and is protected by copyright law.
+
+No licence is granted. Without prior written permission from the copyright holder you may not copy,
+download for use, run, modify, translate, distribute, sublicense, sell or otherwise make available this
+software or any part of it, nor create works based on it.
+
+What is allowed without asking:
+  * Using the web application that the copyright holder runs (https://opensar-explorer.streamlit.app).
+  * Viewing this repository on GitHub. Because the repository is public, GitHub's Terms of Service also let
+    GitHub users view it and fork it within GitHub. No other rights are granted.
+  * Citing the software (see CITATION.cff) and quoting short excerpts with attribution, as copyright law
+    allows.
+
+Not covered by this notice: satellite, GNSS and published data shown or processed by the software belong to
+their providers and are used under their own licences (see the data credits in each report). Third-party
+software packages installed alongside this software are covered by their own licences.
+
+To ask for permission (for example to run your own copy, or for teaching or research use), contact the
+copyright holder through https://github.com/Dkashkush.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED. Its results are research
+estimates for hazard screening, not predictions, and must be verified before any decision is based on them.
+IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM THE
+SOFTWARE OR ITS USE.

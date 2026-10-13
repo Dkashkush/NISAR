@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use OpenSAR Explorer or its results, please cite it as below."
+type: software
+title: "OpenSAR Explorer: comparing NISAR and Sentinel-1 ground motion, with GNSS and published checks"
+authors:
+  - name: "Deepa Kumari"
+version: "0.1.0"
+date-released: "2026-10-13"
+repository-code: "https://github.com/Dkashkush/OpenSAR-Explorer"
+url: "https://opensar-explorer.streamlit.app"
+keywords:
+  - InSAR
+  - NISAR
+  - Sentinel-1
+  - ground motion
+  - land subsidence

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from sarcompare import __author__
+from sarcompare import __author__, __copyright__
 from sarcompare.config import Config
 from sarcompare.notes import GOOD, WARN
 from sarcompare.pipeline import Event, Pipeline
@@ -107,7 +107,7 @@ def header():
 
 def footer():
     st.markdown(
-        f'<div class="app-footer">OpenSAR Explorer, created by {__author__}, is an independent open-source tool. Not affiliated with NASA, ISRO, ESA, ASF or USGS. '
+        f'<div class="app-footer">OpenSAR Explorer {__copyright__} An independent tool, not affiliated with NASA, ISRO, ESA, ASF or USGS. '
         "Data: NISAR (NASA/ISRO) and Copernicus Sentinel-1 (ESA) via the "
         '<a href="https://asf.alaska.edu" target="_blank">Alaska Satellite Facility</a>; GNSS from the '
         '<a href="https://geodesy.unr.edu" target="_blank">Nevada Geodetic Laboratory</a>; base maps © '
