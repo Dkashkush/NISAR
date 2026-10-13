@@ -198,3 +198,32 @@ def test_select_pairs_follows_target_window():
     target = (d + td(60), d + td(108))
     sel, _ = select_pairs(prods, max_pairs=4, min_span=6, max_span=96, target=target)
     assert (sel[0].date1, sel[-1].date2) == target
+
+
+def test_select_pairs_uses_each_frame_and_merge_lines_them_up():
+    from datetime import timedelta as td
+    import numpy as np
+    from sarcompare.processing import RateMap, merge_frames
+    from sarcompare.readers.base import make_da
+
+    d = date(2025, 12, 6)
+    prods = []
+    for frame in (70, 71):
+        prods += [Product(NISAR, "GUNW", f"f{frame}_{k}", date1=d + td(12 * k), date2=d + td(12 * (k + 1)), track=34,
+                          flight_direction="ASCENDING", frame=frame) for k in range(5)]
+    sel, notes = select_pairs(prods, max_pairs=3, min_span=6, max_span=96)
+    assert {p.frame for p in sel} == {70, 71} and len(sel) == 6
+    assert any("spans 2 frames" in n.text for n in notes)
+
+    x, y = np.arange(40) * 90.0, np.arange(30)[::-1] * 90.0
+    truth = np.tile(np.linspace(-0.05, 0.05, 40), (30, 1))
+    a, b = truth.copy(), truth.copy() + 0.02  # frame b has its own zero, 20 mm/yr off
+    a[:, 25:], b[:, :15] = np.nan, np.nan  # overlap in columns 15-24
+
+    def rm(v):
+        da = make_da(v, x, y, "EPSG:32611", "rate")
+        return RateMap(NISAR, da, da * 0 + 0.5, da * 0 + 3, 3, 36, d, d + td(36), 40.0, 0.24, noise_rate=0.01)
+
+    merged, mnotes = merge_frames([rm(a), rm(b)])
+    np.testing.assert_allclose(merged.rate.values, truth, atol=1e-6)
+    assert merged.n_pairs == 6 and "joined a neighbouring frame" in mnotes[0].text

@@ -155,6 +155,44 @@ def stack_rates(ifgs: list[Interferogram], template: xr.DataArray, coherence_thr
     )
 
 
+def merge_frames(maps: list[RateMap], min_overlap: int = 50) -> tuple[RateMap, list[Note]]:
+    """Join rate maps of neighbouring frames (processed separately, so each has its own zero).
+
+    The frame covering most pixels is the base; each other frame is shifted by the median difference where both
+    have data, then fills the gaps. A frame that does not overlap the joined map cannot be lined up and is left out.
+    """
+    maps = sorted(maps, key=lambda m: -int(np.isfinite(m.rate.values).sum()))
+    base = maps[0]
+    rate, coh, nv = base.rate.values.copy(), base.coherence.values.copy(), base.n_valid.values.copy()
+    notes: list[Note] = []
+    used = [base]
+    for m in maps[1:]:
+        r = m.rate.values
+        both = np.isfinite(rate) & np.isfinite(r)
+        if both.sum() < min_overlap:
+            notes.append(Note("stack", WARN, f"{m.sensor}: one frame ({m.date_start}→{m.date_end}) does not overlap "
+                                             "the others, so it cannot be lined up and was left out."))
+            continue
+        shift = float(np.median(rate[both] - r[both]))
+        spread = float(np.std(rate[both] - r[both] - shift)) * 1000
+        fill = ~np.isfinite(rate) & np.isfinite(r)
+        rate[fill], coh[fill], nv[fill] = r[fill] + shift, m.coherence.values[fill], m.n_valid.values[fill]
+        used.append(m)
+        notes.append(Note("stack", INFO if spread < 2 * max(base.noise_rate, m.noise_rate, 0.005) * 1000 else WARN,
+                          f"{m.sensor}: joined a neighbouring frame (shift {shift * 1000:+.0f} mm/yr, where the frames "
+                          f"overlap they differ by {spread:.0f} mm/yr (1σ) over {int(both.sum()):,} pixels)."))
+    noises = [m.noise_rate for m in used if np.isfinite(m.noise_rate)]
+    merged = RateMap(
+        sensor=base.sensor, rate=base.rate.copy(data=rate), coherence=base.coherence.copy(data=coh),
+        n_valid=base.n_valid.copy(data=nv), n_pairs=sum(m.n_pairs for m in used),
+        total_days=max(m.total_days for m in used), date_start=min(m.date_start for m in used),
+        date_end=max(m.date_end for m in used), incidence_deg=float(np.mean([m.incidence_deg for m in used])),
+        wavelength=base.wavelength, component=base.component,
+        noise_rate=float(max(noises)) if noises else float("nan"),
+        notes=[n for m in used for n in m.notes], pair_qc=[q for m in used for q in m.pair_qc])
+    return merged, notes
+
+
 def to_vertical(rm: RateMap) -> RateMap:
     """Project LOS rate to vertical assuming the ground moves only up/down."""
     f = 1.0 / np.cos(np.radians(rm.incidence_deg))

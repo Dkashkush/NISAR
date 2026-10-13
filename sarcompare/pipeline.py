@@ -21,7 +21,7 @@ from .download import download_products
 from .interpret import comparison_notes, gnss_notes, literature_notes, pair_notes, published_notes, stack_notes
 from .notes import INFO, WARN, Note
 from .processing import (RateMap, Reference, aoi_mask, apply_reference, choose_reference, common_grid,
-                         reference_notes, stack_rates, to_vertical)
+                         merge_frames, reference_notes, stack_rates, to_vertical)
 from .products import NISAR, SENTINEL1, Product
 from .readers import read_product
 from .search import date_range, overlap_notes, scan_local, search_nisar, search_sentinel1, select_pairs
@@ -196,20 +196,25 @@ class Pipeline:
         for sensor, products in ((NISAR, self.result.nisar_products), (SENTINEL1, self.result.s1_products)):
             if not products:
                 raise RuntimeError(f"No {sensor} products to compare; see the search notes above.")
-            ifgs = []
+            by_frame: dict = {}
             for k, p in enumerate(products):
                 try:
                     ifg = self._read(p)
                 except (ValueError, KeyError, OSError, RuntimeError) as e:  # bad subset, missing layer, bad file
                     self.emit("load", f"Skipping {p.name}", [Note("load", WARN, f"Could not use {p.name}: {e}")])
                     continue
-                ifgs.append(ifg)
+                by_frame.setdefault(p.frame, []).append(ifg)
                 self.emit("load", f"Loaded {ifg.sensor} pair {ifg.date1} → {ifg.date2}",
                           pair_notes(ifg, cfg.coherence_threshold), progress=(k + 1) / len(products))
-            if not ifgs:
+            if not by_frame:
                 raise RuntimeError(f"None of the {sensor} products could be read over this AOI.")
-            rm = stack_rates(ifgs, template, cfg.coherence_threshold)
-            load_notes = [n for n in rm.notes]  # reader notes, e.g. ionosphere / incidence assumptions
+            # frames are processed separately (each has its own zero): stack each, then join them
+            stacks = [stack_rates(ifgs, template, cfg.coherence_threshold) for ifgs in by_frame.values()]
+            join_notes: list[Note] = []
+            rm = stacks[0]
+            if len(stacks) > 1:
+                rm, join_notes = merge_frames(stacks)
+            load_notes = [n for n in rm.notes] + join_notes  # reader notes, e.g. ionosphere / incidence
             if cfg.project_to_vertical:
                 rm = to_vertical(rm)
             rates[sensor] = rm

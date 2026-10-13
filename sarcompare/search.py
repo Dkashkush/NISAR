@@ -46,6 +46,7 @@ def _to_product(result, sensor: str, product_type: str) -> Product:
                 url = u
                 break
     dates = pair_dates_from_name(Path(url).name if url else name) or pair_dates_from_name(name)
+    info = parse_name(Path(url).name if url else name) or parse_name(name)
     return Product(
         sensor=sensor,
         product_type=product_type,
@@ -55,7 +56,7 @@ def _to_product(result, sensor: str, product_type: str) -> Product:
         date2=dates[1] if dates else None,
         flight_direction=(p.get("flightDirection") or "").upper() or None,
         track=p.get("pathNumber"),
-        frame=p.get("frameNumber"),
+        frame=info.get("frame") or p.get("frameNumber"),  # OPERA frame IDs are in the name (F36542)
         size_mb=_size_mb(p),
     )
 
@@ -249,7 +250,35 @@ def select_pairs(products: list[Product], max_pairs: int, min_span: int, max_spa
                           f"{key[0] or 'unknown direction'} track {key[1]} ({len(group)} products). "
                           "Mixing geometries would mix different line-of-sight directions."))
 
-    group.sort(key=lambda p: (p.date1, p.date2))
+    frames: dict = defaultdict(list)
+    for p in group:
+        frames[p.frame].append(p)
+    if len(frames) == 1:
+        selected, chain_notes = _select_chain(group, sensor, max_pairs, target)
+        return selected, notes + chain_notes
+    # The area spans several frames (fixed processing tiles along the track). Each frame is processed on its
+    # own, so each gets its own chain; they are stacked separately and joined where they overlap.
+    picks = {f: _select_chain(g, sensor, max_pairs, target) for f, g in frames.items()}
+    windows = {f: (sel[0].date1, sel[-1].date2) for f, (sel, _) in picks.items() if sel}
+    best = max(windows, key=lambda f: (_iou(*windows[f], target or windows[f]), len(frames[f])))
+    keep = [f for f in windows if _iou(*windows[f], windows[best]) >= 0.5]
+    selected = sorted((p for f in keep for p in picks[f][0]), key=lambda p: (p.date1, p.frame or 0))
+    notes += picks[best][1]
+    names = ", ".join(str(f) for f in sorted(keep, key=lambda f: (f is None, f)))
+    notes.append(Note("search", INFO, f"{sensor}: the area spans {len(frames)} frames; using {len(keep)} "
+                                      f"(frame {names}) with matching dates. Each frame is stacked on its own and "
+                                      "the frames are joined where they overlap."))
+    return selected, notes
+
+
+def _select_chain(group: list[Product], sensor: str, max_pairs: int,
+                  target: tuple[date, date] | None) -> tuple[list[Product], list[Note]]:
+    """Pairs from one frame: the best gapless chain, else the best window of pairs with gaps, else the longest."""
+    notes: list[Note] = []
+    latest = {}  # reprocessed versions share frame and dates; names end with the production time, so keep the last
+    for p in sorted(group, key=lambda p: p.name):
+        latest[(p.date1, p.date2)] = p
+    group = sorted(latest.values(), key=lambda p: (p.date1, p.date2))
     path = _best_path(group, max_pairs, target)
     chain: list[Product] = []
     for p in group:
