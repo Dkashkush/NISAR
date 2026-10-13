@@ -33,6 +33,36 @@ What this shows:
 - Only 2 NGL stations have current data inside the area, so the maps are tied to GNSS with a single shift.
   More stations (or a longer period) would let the app remove that tilt.
 
+### Mexico City against published studies
+
+Five values taken from two peer-reviewed papers (page numbers in `examples/mexico_city.yaml`), compared
+with the NISAR and Sentinel-1 (ARIA) run above. **7 of 10 comparisons agree.** All rates are vertical, in mm/yr.
+
+| Study (period) | Place | Published | NISAR | Sentinel-1 | Verdict |
+|---|---|---|---|---|---|
+| Cigna & Tapete 2021 (Oct 2017 – Oct 2019) | GNSS station MMX1, airport | −294 | −245 | −229 | both consistent |
+| Cigna & Tapete 2021 (2017–2019) | Central Nezahualcóyotl, peaks | −350 to −387 | −278 | −261 | both lower |
+| Cigna & Tapete 2021 (2017–2019) | Metropolitan Cathedral | −70 to −88 | −51 | −115 | both consistent |
+| Cigna & Tapete 2021 (Oct 2017 – Oct 2019) | TNGF, volcanic rock (stable) | +0.05 | +60 | −11 | NISAR differs, Sentinel-1 consistent |
+| Chaussard et al. 2014 (2007–2011) | Eastern Mexico City, maximum | −300 | −278 | −261 | both consistent |
+
+Reading the three differences:
+- **Nezahualcóyotl peaks:** both satellites agree with each other (−278, −261) and are about 25% below the
+  2017–2019 peaks. Likely reasons: the district centre used is approximate (the paper gives no coordinates),
+  this run's pixels are 90 m (finer maps show sharper peaks), and the period differs by 6-8 years. They match
+  the 2007–2011 maximum of about −300.
+- **Stable volcanic rock (TNGF):** NISAR reads +60 where the ground is stable; Sentinel-1 reads −11. This is the
+  smooth tilt left in the NISAR map (the west of the city reads +15 to +50 in NISAR). With only 2 GNSS
+  stations, the tilt cannot be removed; a weather-model (troposphere) correction or a longer period would.
+
+Papers:
+- Cigna, F., & Tapete, D. (2021). Present-day land subsidence rates, surface faulting hazard and risk in Mexico
+  City with 2014–2020 Sentinel-1 IW InSAR. *Remote Sensing of Environment*, 253, 112161.
+  https://doi.org/10.1016/j.rse.2020.112161
+- Chaussard, E., Wdowinski, S., Cabral-Cano, E., & Amelung, F. (2014). Land subsidence in central Mexico
+  detected by ALOS InSAR time-series. *Remote Sensing of Environment*, 140, 94–106.
+  https://doi.org/10.1016/j.rse.2013.08.038
+
 ## Central Valley (Tulare Lake basin): a hard case, reported honestly
 
 Winter 2025-26 (Nov 24 → Mar 24), about 5,200 km², 9 GNSS stations.
@@ -74,5 +104,5 @@ the atmosphere of individual dates averages out and the seasonal cycle does not 
   the atmosphere of every date and should cut the noise substantially.
 - Read incidence angles from OPERA's DISP-S1-STATIC product (38° is assumed now; about 5% scale error).
 - Re-run both sites over a full year once OPERA products for mid-2026 are published.
-- Add rates from the published studies listed in [validation-guide.md](validation-guide.md), taken from the
-  papers themselves, to the site configs.
+- Add published rates for the Central Valley (e.g. from the California DWR InSAR data or the papers in
+  [validation-guide.md](validation-guide.md)), taken from the sources themselves.
