@@ -18,7 +18,7 @@ class Hotspot:
     lon: float
     lat: float
     area_km2: float
-    peak_mm_yr: float
+    peak_mm_yr: float  # robust peak: the fastest 5% of the area move at least this fast (not a single pixel)
     mean_mm_yr: float
     seen_by_other: str  # "yes", "no", or "no data" (other sensor decorrelated there)
 
@@ -89,7 +89,8 @@ def find_hotspots(rm: RateMap, other: RateMap, inside: np.ndarray, min_rate_mm: 
             if region.sum() < min_pixels:
                 continue
             vals = r[region]
-            peak = float(vals[np.argmax(np.abs(vals))])
+            # a single extreme pixel is often an unwrapping or decorrelation outlier: report the 95th percentile
+            peak = float(sign * np.percentile(sign * vals, 95))
             rows, cols = np.nonzero(region)
             lon, lat = to_ll.transform(float(rm.rate.x.values[int(cols.mean())]),
                                        float(rm.rate.y.values[int(rows.mean())]))

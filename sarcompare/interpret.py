@@ -128,7 +128,7 @@ def comparison_notes(c: Comparison, a: RateMap, b: RateMap, mode: str = "area") 
         kind = motion_words(h.peak_mm_yr, mode)
         other = B if h.sensor == A else A
         base = (f"{h.sensor} detects an area {kind}: {h.area_km2:.1f} km² centred at {h.lat:.4f}°N, "
-                f"{h.lon:.4f}°E, peak {h.peak_mm_yr:+.0f} mm/yr.")
+                f"{h.lon:.4f}°E, on average {h.mean_mm_yr:+.0f} mm/yr and up to {h.peak_mm_yr:+.0f} mm/yr (the fastest 5% of it).")
         if h.seen_by_other == "yes":
             add(GOOD, base + f" {other} sees it too, so it is confirmed by two independent sensors.")
         elif h.seen_by_other == "no data":
