@@ -188,10 +188,16 @@ data on GitHub's servers. No local install is needed.
 
 1. Add your NASA Earthdata token as a repository secret named `EARTHDATA_TOKEN`
    (Settings → Secrets and variables → Actions).
-2. **Actions** → **Real-data test** → **Run workflow**, then choose a site: `central_valley` (best first test:
-   Sentinel-1 products and many GNSS stations) or `mexico_city`.
-3. Read the results on the run's **Summary** page and download the `results-…` artifact (report, maps,
-   GeoTIFFs and metrics).
+2. **Actions** → **Real-data test** → **Run workflow**, then choose a site: `mexico_city` (strong subsidence:
+   the clearest check of signs and sizes) or `central_valley` (many GNSS stations, slower and seasonal
+   motion), and optionally the Sentinel-1 product type.
+3. Read the results on the run's **Summary** page (including a **Diagnostics** section with the GNSS station
+   table and per-pair quality numbers) and download the `results-…` artifact (report, maps, GeoTIFFs and
+   metrics).
+
+**Results so far:** see [docs/real-data-results.md](docs/real-data-results.md). In Mexico City, NISAR,
+Sentinel-1 ARIA and Sentinel-1 OPERA all match GNSS station MMX1 (−270 to −292 mm/yr over the same dates)
+within about 10-30 mm/yr, and agree with each other at r = 0.73-0.87.
 
 ## Validating against published data
 
