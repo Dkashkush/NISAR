@@ -175,13 +175,13 @@ class Pipeline:
                   nisar_sign=cfg.nisar_sign, s1_sign=cfg.s1_sign)
         if p.local_path is not None:
             return read_product(p, self.aoi, **kw)
-        from .remote import AccessError, open_remote
+        from .remote import AccessError, UnavailableError, open_remote
 
         try:
             with open_remote(p.url, self._session()) as fobj:
                 return read_product(p, self.aoi, fileobj=fobj, **kw)
-        except (ValueError, AccessError):
-            raise  # the product does not cover the area, or the login was refused: downloading would not help
+        except (ValueError, AccessError, UnavailableError):
+            raise  # no overlap with the area, login refused, or file unavailable: downloading would not help
         except Exception as e:  # network / server problems: fall back to downloading the file
             self.emit("load", f"Remote read failed for {p.name}; downloading it instead",
                       [Note("load", INFO, f"Remote read of {p.name} failed ({type(e).__name__}: {e}); "

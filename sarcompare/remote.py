@@ -25,6 +25,11 @@ class AccessError(Exception):
     """The server refused the file (login, permission). Downloading it in full would fail the same way."""
 
 
+class UnavailableError(RuntimeError):
+    """The login worked but the storage server refused this one file (often: not, or no longer, published).
+    Downloading would fail the same way; the file is skipped."""
+
+
 AUTHORIZE_HELP = (
     "Fix: sign in at https://urs.earthdata.nasa.gov, open Applications > Authorized Apps, and make sure "
     "'Alaska Satellite Facility Data Access' is listed (if not: Approve More Applications, search 'Alaska "
@@ -51,6 +56,9 @@ def access_problem(r) -> str | None:
                 f"accepted for ASF downloads [{hops(r)}]. " + AUTHORIZE_HELP)
     if r.status_code == 401:
         return f"the token was refused (HTTP 401) [{hops(r)}]. It may be expired or revoked. " + AUTHORIZE_HELP
+    hosts = [_host(x.url) for x in [*getattr(r, "history", []), r]]
+    if r.status_code in (403, 404) and len(set(hosts)) > 1 and not any("earthdata" in h for h in hosts[-1:]):
+        return None  # redirected past the login to storage: this file is unavailable, not the account (see probe)
     if r.status_code == 403:
         return (f"access refused (HTTP 403) [{hops(r)}]. The account may still need to approve ASF's application "
                 "or a data-use agreement; download one file by hand at https://search.asf.alaska.edu and "
@@ -65,6 +73,9 @@ def probe(url: str, session, timeout: float = 60) -> tuple[str, int]:
         problem = access_problem(r)
         if problem:
             raise AccessError(problem)
+        if r.status_code in (403, 404) and r.history:
+            raise UnavailableError(f"the storage server refused this file (HTTP {r.status_code}) [{hops(r)}] after the "
+                                   "login succeeded; it may not be published (yet) or may have been withdrawn")
         if r.status_code >= 400:
             raise RuntimeError(f"HTTP {r.status_code} when opening {url.split('?')[0]} [{hops(r)}]")
         if r.status_code != 206:

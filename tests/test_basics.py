@@ -227,3 +227,22 @@ def test_select_pairs_uses_each_frame_and_merge_lines_them_up():
     merged, mnotes = merge_frames([rm(a), rm(b)])
     np.testing.assert_allclose(merged.rate.values, truth, atol=1e-6)
     assert merged.n_pairs == 6 and "joined a neighbouring frame" in mnotes[0].text
+
+
+def test_select_pairs_prefers_the_geometry_that_covers_the_area():
+    from datetime import timedelta as td
+    from shapely.geometry import box
+
+    aoi = box(0, 0, 1, 1)
+    d = date(2025, 12, 1)
+
+    def p(track, frame, k, cover):
+        return Product(NISAR, "GUNW", f"t{track}f{frame}_{k}", date1=d + td(12 * k), date2=d + td(12 * (k + 1)),
+                       track=track, flight_direction="ASCENDING", frame=frame,
+                       extra={"cover": cover.intersection(aoi), "aoi_area": aoi.area})
+
+    full = [p(34, 20, k, box(-1, -1, 2, 2)) for k in range(6)]
+    edge = [p(135, f, k, box(0.9, y, 1.5, y + 0.5)) for f, y in ((19, 0), (20, 0.5)) for k in range(6)]
+    sel, notes = select_pairs(full + edge, max_pairs=4, min_span=6, max_span=96)
+    assert {x.track for x in sel} == {34} and len(sel) == 4
+    assert any("covering 100% of the area" in n.text for n in notes)

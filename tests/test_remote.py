@@ -139,3 +139,11 @@ def test_token_used_even_when_precheck_fails(monkeypatch):
     assert s.headers["Authorization"] == "Bearer abc.def.ghi"
     assert s.token_check == (False, "HTTP 401")
     assert "earthdatacloud.nasa.gov" in s.auth_domains
+
+
+def test_file_refused_by_storage_after_login_is_skipped_not_fatal(server):
+    from sarcompare.remote import UnavailableError
+
+    base, _ = server
+    with pytest.raises(UnavailableError):  # redirect (login fine) -> file missing in storage
+        probe(f"{base}/redirect/nisar/NOT_THERE.h5", requests.Session())

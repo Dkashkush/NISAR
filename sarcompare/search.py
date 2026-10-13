@@ -35,7 +35,32 @@ def _size_mb(props: dict) -> float | None:
     return None
 
 
-def _to_product(result, sensor: str, product_type: str) -> Product:
+def _cover(result, aoi: AOI | None) -> dict:
+    """The part of the AOI inside the product footprint (lon/lat), to choose geometries and frames by coverage."""
+    geom = getattr(result, "geometry", None)
+    if aoi is None or not geom:
+        return {}
+    try:
+        from shapely.geometry import shape
+
+        part = shape(geom).intersection(aoi.geometry)
+    except (ValueError, TypeError, AttributeError):  # missing or invalid footprint
+        return {}
+    return {"cover": part, "aoi_area": aoi.geometry.area}
+
+
+def coverage(products: list[Product]) -> float | None:
+    """Fraction of the AOI covered by the union of the products' footprints (None when footprints are unknown)."""
+    parts = [p.extra["cover"] for p in products if "cover" in p.extra]
+    if not parts:
+        return None
+    from shapely.ops import unary_union
+
+    area = next(p.extra["aoi_area"] for p in products if "cover" in p.extra)
+    return float(unary_union(parts).area / area) if area else None
+
+
+def _to_product(result, sensor: str, product_type: str, aoi: AOI | None = None) -> Product:
     p = result.properties
     name = p.get("sceneName") or p.get("fileID") or Path(p.get("url", "")).stem
     url = p.get("url")
@@ -58,6 +83,7 @@ def _to_product(result, sensor: str, product_type: str) -> Product:
         track=p.get("pathNumber"),
         frame=info.get("frame") or p.get("frameNumber"),  # OPERA frame IDs are in the name (F36542)
         size_mb=_size_mb(p),
+        extra=_cover(result, aoi),
     )
 
 
@@ -78,7 +104,7 @@ def search_nisar(aoi: AOI, start=None, end=None, flight_direction=None, max_resu
     if flight_direction:
         kw["flightDirection"] = flight_direction
     results = asf.search(**kw)
-    return [_to_product(r, NISAR, "GUNW") for r in results]
+    return [_to_product(r, NISAR, "GUNW", aoi) for r in results]
 
 
 def search_sentinel1(aoi: AOI, source: str, start=None, end=None, flight_direction=None,
@@ -90,10 +116,10 @@ def search_sentinel1(aoi: AOI, source: str, start=None, end=None, flight_directi
         kw["flightDirection"] = flight_direction
     if source == "ARIA_S1_GUNW":
         results = asf.search(dataset=asf.DATASET.ARIA_S1_GUNW, **kw)
-        return [_to_product(r, SENTINEL1, "ARIA_GUNW") for r in results]
+        return [_to_product(r, SENTINEL1, "ARIA_GUNW", aoi) for r in results]
     if source == "OPERA_DISP_S1":
         results = asf.search(dataset=asf.DATASET.OPERA_S1, processingLevel="DISP-S1", **kw)
-        return [_to_product(r, SENTINEL1, "DISP-S1") for r in results]
+        return [_to_product(r, SENTINEL1, "DISP-S1", aoi) for r in results]
     raise ValueError(f"Unsupported Sentinel-1 search source {source!r}")
 
 
@@ -243,11 +269,21 @@ def select_pairs(products: list[Product], max_pairs: int, min_span: int, max_spa
     groups: dict[tuple, list[Product]] = defaultdict(list)
     for p in cands:
         groups[p.geometry_key].append(p)
-    key, group = max(groups.items(), key=lambda kv: (len(kv[1]), -min(p.date1 for p in kv[1]).toordinal()))
+    # Prefer the geometry that covers most of the area (a track that only clips its edge is of little use), then
+    # the one with the most dates (products / frames), then the earliest start.
+    def rank(kv):
+        cov = coverage(kv[1])
+        n_frames = len({p.frame for p in kv[1]}) or 1
+        return (round(cov, 1) if cov is not None else 1.0, len(kv[1]) / n_frames,
+                -min(p.date1 for p in kv[1]).toordinal())
+
+    key, group = max(groups.items(), key=rank)
     if len(groups) > 1:
+        cov = coverage(group)
+        cov_txt = f", covering {cov:.0%} of the area" if cov is not None else ""
         notes.append(Note("search", INFO,
                           f"{sensor}: {len(groups)} viewing geometries found; using "
-                          f"{key[0] or 'unknown direction'} track {key[1]} ({len(group)} products). "
+                          f"{key[0] or 'unknown direction'} track {key[1]} ({len(group)} products{cov_txt}). "
                           "Mixing geometries would mix different line-of-sight directions."))
 
     frames: dict = defaultdict(list)
@@ -260,8 +296,16 @@ def select_pairs(products: list[Product], max_pairs: int, min_span: int, max_spa
     # own, so each gets its own chain; they are stacked separately and joined where they overlap.
     picks = {f: _select_chain(g, sensor, max_pairs, target) for f, g in frames.items()}
     windows = {f: (sel[0].date1, sel[-1].date2) for f, (sel, _) in picks.items() if sel}
-    best = max(windows, key=lambda f: (_iou(*windows[f], target or windows[f]), len(frames[f])))
-    keep = [f for f in windows if _iou(*windows[f], windows[best]) >= 0.5]
+    cov = {f: coverage(frames[f]) for f in windows}
+    best = max(windows, key=lambda f: (round(_iou(*windows[f], target or windows[f]), 1),
+                                       round(cov[f], 1) if cov[f] is not None else 1.0, len(frames[f])))
+    keep = [best]
+    for f in sorted(windows, key=lambda f: -(cov[f] or 0)):
+        if f == best or _iou(*windows[f], windows[best]) < 0.5:
+            continue
+        before, after = coverage([p for k in keep for p in frames[k]]), coverage([p for k in keep + [f] for p in frames[k]])
+        if before is None or after is None or after - before >= 0.05:  # only frames that add area
+            keep.append(f)
     selected = sorted((p for f in keep for p in picks[f][0]), key=lambda p: (p.date1, p.frame or 0))
     notes += picks[best][1]
     names = ", ".join(str(f) for f in sorted(keep, key=lambda f: (f is None, f)))
