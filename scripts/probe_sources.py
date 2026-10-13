@@ -91,13 +91,22 @@ def main() -> int:
                 ifg = get(f"{base}/{track}/{frame}/interferograms/")
                 pairs = [p.strip("/") for p in links(ifg)]
                 print(f"    interferograms: {len(pairs)}; first {pairs[:3]}; last {pairs[-5:]}")
-                for pair in sorted(pairs)[-1:]:  # recent pair; folders may not list
+                for pair in sorted(pairs)[-2:] + sorted(pairs)[-60:-59]:
+                    # since Aug 2025 the pair "folder" without a trailing slash is a page linking to the files
                     for b in (base, base + ".future"):
-                        for suffix in ("geo.unw.tif", "geo.cc.tif", "geo.diff_pha.tif", "geo.diff.png"):
-                            url = f"{b}/{track}/{frame}/interferograms/{pair}/{pair}.{suffix}"
-                            h = S.head(url, timeout=60, allow_redirects=True)
-                            print(f"      {url.split('nceo_geohazards/')[1]}: HTTP {h.status_code}, "
-                                  f"{h.headers.get('Content-Length')} bytes, ranges {h.headers.get('Accept-Ranges')}")
+                        page = get(f"{b}/{track}/{frame}/interferograms/{pair}", n=0)
+                        hrefs = re.findall(r'href="([^"]+)"', page.text) if page is not None and page.ok else []
+                        print(f"      links: {hrefs[:12]}")
+                        for href in hrefs:
+                            if href.endswith((".geo.unw.tif", ".geo.cc.tif")):
+                                url = href if href.startswith("http") else requests.compat.urljoin(page.url, href)
+                                h = S.head(url, timeout=60, allow_redirects=True)
+                                rg = S.get(url, headers={"Range": "bytes=0-15"}, timeout=60)
+                                print(f"      {url}: HTTP {h.status_code}, {h.headers.get('Content-Length')} bytes, "
+                                      f"ranges {h.headers.get('Accept-Ranges')}; range read -> {rg.status_code} "
+                                      f"{len(rg.content)} bytes {rg.content[:4]!r}")
+                        if hrefs:
+                            break
                 spans = {}
                 for pair in pairs:
                     try:
@@ -112,15 +121,13 @@ def main() -> int:
                 ep = get(f"{base}/{track}/{frame}/epochs/")
                 eps = [e.strip("/") for e in links(ep)]
                 print(f"    epochs: {len(eps)}; last {sorted(eps)[-3:]}")
-                for ep_ in sorted(eps)[-1:] + sorted(eps)[-20:-19]:
+                for ep_ in sorted(eps)[-1:]:
                     for b in (base, base + ".future"):
-                        for suffix in ("geo.mli.tif", "sltd.geo.tif", "ztd.geo.tif", "geo.iono.code.tif",
-                                       "geo.sltd.tif"):
-                            url = f"{b}/{track}/{frame}/epochs/{ep_}/{ep_}.{suffix}"
-                            h = S.head(url, timeout=60, allow_redirects=True)
-                            if h.status_code == 200:
-                                print(f"      {url.split('nceo_geohazards/')[1]}: {h.headers.get('Content-Length')} bytes")
-                    print(f"      (epoch {ep_} checked)")
+                        page = get(f"{b}/{track}/{frame}/epochs/{ep_}", n=0)
+                        hrefs = re.findall(r'href="([^"]+)"', page.text) if page is not None and page.ok else []
+                        print(f"      epoch {ep_} links: {hrefs[:12]}")
+                        if hrefs:
+                            break
                 for name in ("geo.U.tif", "geo.E.tif", "geo.hgt.tif"):
                     url = f"{base}/{track}/{frame}/metadata/{frame}.{name}"
                     h = S.head(url, timeout=60, allow_redirects=True)
