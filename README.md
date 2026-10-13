@@ -230,7 +230,9 @@ data on GitHub's servers. No local install is needed.
 
 **Results so far:** see [docs/real-data-results.md](docs/real-data-results.md). In Mexico City, NISAR,
 Sentinel-1 ARIA and Sentinel-1 OPERA all match GNSS station MMX1 (−270 to −292 mm/yr over the same dates)
-within about 10-30 mm/yr, and agree with each other at r = 0.73-0.87.
+within about 10-30 mm/yr, and agree with each other at r = 0.73-0.87. In Tehran (no ready-made Sentinel-1), Sentinel-1D
+ordered from HyP3 and LiCSAR both confirm NISAR's main subsidence area and show that its north-eastern "uplift"
+is an artefact.
 
 ## Validating against published data
 

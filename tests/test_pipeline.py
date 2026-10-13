@@ -111,3 +111,20 @@ def test_stops_when_neither_satellite_has_data(demo_cfg, tmp_path):
     cfg = replace(demo_cfg, s1_dir=str(empty), nisar_dir=str(empty), name="nothing", output_dir=str(tmp_path / "out"))
     with pytest.raises(RuntimeError, match="Neither NISAR nor Sentinel-1"):
         Pipeline(cfg, on_event=lambda e: None).run(download=False)
+
+
+def test_summary_leads_with_a_confirmed_area():
+    """Real case (Tehran): an unconfirmed NISAR-only area moved faster than the area both satellites saw."""
+    from types import SimpleNamespace
+
+    from sarcompare.compare import Hotspot
+    from sarcompare.interpret import plain_summary
+
+    c = SimpleNamespace(hotspots=[Hotspot("NISAR", 51.39, 35.70, 43.3, 410.0, 288.0, "no"),
+                                  Hotspot("Sentinel-1", 51.21, 35.63, 120.8, -253.0, -180.0, "yes")],
+                        pearson_r=0.54, rmsd_mm_yr=120.0, only_a=0.0, sign_suspect=False)
+    rm = SimpleNamespace(sensor="NISAR", noise_rate=0.04)
+    s1 = SimpleNamespace(sensor="Sentinel-1", noise_rate=0.025)
+    res = SimpleNamespace(comparison=c, nisar_rate=rm, s1_rate=s1, reference=SimpleNamespace(mode="area"))
+    first = plain_summary(res)[0][1]
+    assert "sinking" in first and "25.3 cm" in first and "Both satellites see it" in first

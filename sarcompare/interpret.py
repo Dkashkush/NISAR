@@ -353,7 +353,9 @@ def plain_summary(result) -> list[tuple[str, str]]:
     a = maps[0]
     out: list[tuple[str, str]] = []
     moving = []  # one entry per place: the same area seen by both satellites counts once
-    for h in sorted(c.hotspots, key=lambda h: -abs(h.peak_mm_yr)):
+    # headline: areas confirmed by both satellites first, then those only one can measure, then unconfirmed ones
+    trust = {"yes": 0, "single": 1, "no data": 1, "no": 2}
+    for h in sorted(c.hotspots, key=lambda h: (trust.get(h.seen_by_other, 2), -abs(h.peak_mm_yr))):
         near = [m for m in moving if math.hypot((m.lon - h.lon) * 111 * math.cos(math.radians(h.lat)),
                                                 (m.lat - h.lat) * 111) < 2.0]
         if not near:

@@ -772,7 +772,14 @@ def page_help():
     faq = {
         "Why was no data found?": (
             "NISAR started producing data in late 2025, so choose dates after that. Ready-made Sentinel-1 "
-            "interferograms exist for parts of the world (ARIA, mainly the USA) and for North America (OPERA)."),
+            "interferograms exist for parts of the world: ARIA (mainly the USA), OPERA (North America) and "
+            "LiCSAR from COMET (many earthquake and volcano regions, especially from the Mediterranean to the "
+            "Himalaya). The app checks all of them automatically."),
+        "Can I use EGMS in Europe?": (
+            "Yes. EGMS (the EU's European Ground Motion Service) is an independent Sentinel-1 map of ground motion "
+            "across Europe, calibrated with GNSS. Paste your free EGMS key under **Extra checks → EGMS maps for "
+            "Europe** and the app downloads the right tiles itself (the key is used only for that run and never "
+            "stored). Or download the Ortho tiles yourself and upload them."),
         "There is no Sentinel-1 data for my area. What happens?": (
             "The analysis continues with NISAR alone: the ground-motion map, the moving areas and the checks "
             "against GNSS and published studies all still work; only the second-satellite confirmation is "
