@@ -67,8 +67,42 @@ def motion_words(peak_mm_yr: float, mode: str = "area") -> str:
             else "moving up relative to the area as a whole (it may still be sinking, only more slowly)")
 
 
-def comparison_notes(c: Comparison, a: RateMap, b: RateMap, mode: str = "area") -> list[Note]:
-    """``mode`` is the reference mode: "area" (zero = area median), "point" or "gnss" (absolute)."""
+def _in_europe(lon: float, lat: float) -> bool:
+    return -25 <= lon <= 45 and 34 <= lat <= 72  # roughly the area covered by EGMS
+
+
+def missing_sensor_notes(present: str, missing: str, center: tuple[float, float] | None = None) -> list[Note]:
+    """Why one satellite is missing from the run, what is lost, and how to add it."""
+    notes: list[Note] = []
+    add = lambda lvl, text: notes.append(Note("compare", lvl, text))  # noqa: E731
+    add(WARN, f"No usable {missing} data were found for this area and period, so ground motion is measured with "
+              f"{present} alone. The rate map, the moving areas and the checks against GNSS and published studies "
+              f"all still work. What is lost is the second, independent satellite: a moving area can no longer be "
+              "confirmed by both, so check it against GNSS, published studies or field evidence.")
+    if missing == "Sentinel-1":
+        add(INFO, "Why: Sentinel-1 images almost all land every 12 days, but ready-made interferograms are only "
+                  "published for some places (ARIA for selected regions, OPERA DISP-S1 for North America). For "
+                  "anywhere else, ASF's free HyP3 service makes them on request from the raw Sentinel-1 images: "
+                  "order them for the same dates in ASF Vertex (search.asf.data.nasa.gov) with your Earthdata "
+                  "login, wait for them to finish (usually under an hour), then run again with "
+                  "\"Use files I already have\" (s1_source: LOCAL).")
+        if center is not None and _in_europe(*center):
+            add(INFO, "This area is in Europe, where the European Ground Motion Service (EGMS) maps Sentinel-1 "
+                      "ground motion everywhere. Download the EGMS vertical tile for this area (see Checks) and "
+                      "add it as a published map: it serves as the independent Sentinel-1 check.")
+    else:
+        add(INFO, "Why: NISAR science products have been published since late 2025 and coverage is still being "
+                  "filled in. Try a later period, or check ASF Vertex (search.asf.data.nasa.gov) for NISAR GUNW "
+                  "products over this area.")
+    return notes
+
+
+def comparison_notes(c: Comparison, a: RateMap, b: RateMap | None, mode: str = "area") -> list[Note]:
+    """``mode`` is the reference mode: "area" (zero = area median), "point" or "gnss" (absolute).
+
+    ``b`` is None when only one satellite has data: then only ``a``'s own findings are described."""
+    if b is None:
+        return _single_notes(c, a, mode)
     A, B = a.sensor, b.sensor
     notes: list[Note] = []
     add = lambda lvl, text: notes.append(Note("compare", lvl, text))  # noqa: E731
@@ -128,9 +162,7 @@ def comparison_notes(c: Comparison, a: RateMap, b: RateMap, mode: str = "area") 
                   "only differences in spatial pattern are meaningful.")
 
     # --- Hotspots
-    if not c.hotspots:
-        add(INFO, "No coherent area moves faster than the detection threshold. The AOI appears stable at the "
-                  "precision these pairs allow.")
+    _no_hotspots(c, add)
     for h in c.hotspots:
         kind = motion_words(h.peak_mm_yr, mode)
         other = B if h.sensor == A else A
@@ -145,13 +177,10 @@ def comparison_notes(c: Comparison, a: RateMap, b: RateMap, mode: str = "area") 
         else:
             add(WARN, base + f" {other} does not see it. Treat it with caution: it could be an atmospheric or "
                              "unwrapping artefact, or motion that happened only in one sensor's time window.")
-    if any(h.peak_mm_yr < 0 and h.area_km2 > 5 for h in c.hotspots):
-        add(INFO, "A broad, bowl-shaped subsidence area in sediment-filled basins most often means groundwater "
-                  "extraction and aquifer-system compaction. Compare with well-level records and land use.")
+    _bowl(c, add)
 
     # --- Caveats
-    zero = {"gnss": "rates are tied to GNSS, so their accuracy depends on the stations used",
-            "point": "rates are relative to your reference point"}.get(mode, "rates are relative to the area median")
+    zero = _zero_words(mode)
     both = [rm.sensor for rm in (a, b) if _combined(rm)]
     single = [rm.sensor for rm in (a, b) if not _combined(rm)]
     if not single:
@@ -164,6 +193,51 @@ def comparison_notes(c: Comparison, a: RateMap, b: RateMap, mode: str = "area") 
         geo = ("The vertical maps assume the ground moves only up and down; with ascending and descending passes "
                "the app separates vertical from east-west motion.")
     add(INFO, f"Caveats: {zero}. {geo} Nonlinear (e.g. seasonal) motion is averaged out by rate stacking.")
+    return notes
+
+
+def _no_hotspots(c: Comparison, add) -> None:
+    if not c.hotspots:
+        add(INFO, "No coherent area moves faster than the detection threshold. The AOI appears stable at the "
+                  "precision these pairs allow.")
+
+
+def _bowl(c: Comparison, add) -> None:
+    if any(h.peak_mm_yr < 0 and h.area_km2 > 5 for h in c.hotspots):
+        add(INFO, "A broad, bowl-shaped subsidence area in sediment-filled basins most often means groundwater "
+                  "extraction and aquifer-system compaction. Compare with well-level records and land use.")
+
+
+def _zero_words(mode: str) -> str:
+    return {"gnss": "rates are tied to GNSS, so their accuracy depends on the stations used",
+            "point": "rates are relative to your reference point"}.get(mode, "rates are relative to the area median")
+
+
+def _single_notes(c: Comparison, a: RateMap, mode: str) -> list[Note]:
+    """Findings when only one satellite has data: coverage, moving areas and caveats, without cross-checks."""
+    A = a.sensor
+    notes: list[Note] = []
+    add = lambda lvl, text: notes.append(Note("compare", lvl, text))  # noqa: E731
+    add(INFO, f"Usable coverage of the AOI: {A} {c.coverage_a:.0%}, mean coherence {_fmt(c.coh_mean_a, 2)}. "
+              f"Rate noise ≈ {_fmt(c.noise_a_mm_yr, 0)} mm/yr (1σ). Only one satellite has data here, so there is "
+              "no satellite-to-satellite agreement to report.")
+    if c.coverage_a < 0.3:
+        add(WARN, f"{A} measures less than a third of the area. Lower coherence_threshold, or use pairs with "
+                  "shorter time gaps or from a drier / leaf-off season.")
+    _no_hotspots(c, add)
+    for h in c.hotspots:
+        add(INFO, f"{A} detects an area {motion_words(h.peak_mm_yr, mode)}: {h.area_km2:.1f} km² centred at "
+                  f"{h.lat:.4f}°N, {h.lon:.4f}°E, on average {h.mean_mm_yr:+.0f} mm/yr and up to "
+                  f"{h.peak_mm_yr:+.0f} mm/yr (the fastest 5% of it). Seen by one satellite only: confirm it with "
+                  "GNSS, published studies or field evidence (cracks, damaged well casings, tilted buildings) "
+                  "before relying on it.")
+    _bowl(c, add)
+    geo = ("The vertical map comes from ascending + descending passes, so sideways (east-west) motion is "
+           "separated; north-south motion is not measured." if _combined(a) else
+           "The vertical map assumes the ground moves only up and down; with ascending and descending passes "
+           "the app separates vertical from east-west motion.")
+    add(INFO, f"Caveats: {_zero_words(mode)}. {geo} Nonlinear (e.g. seasonal) motion is averaged out by rate "
+              "stacking.")
     return notes
 
 
@@ -264,7 +338,9 @@ def published_notes(pv, rates: list[RateMap]) -> list[Note]:
 
 def plain_summary(result) -> list[tuple[str, str]]:
     """A few short sentences for non-specialists, as (level, text), most important first."""
-    c, a, b = result.comparison, result.nisar_rate, result.s1_rate
+    c = result.comparison
+    maps = [rm for rm in (result.nisar_rate, result.s1_rate) if rm is not None]
+    a = maps[0]
     out: list[tuple[str, str]] = []
     moving = []  # one entry per place: the same area seen by both satellites counts once
     for h in sorted(c.hotspots, key=lambda h: -abs(h.peak_mm_yr)):
@@ -282,7 +358,8 @@ def plain_summary(result) -> list[tuple[str, str]]:
             verb = f"{'sinking' if h.peak_mm_yr < 0 else 'rising'} relative to {whom}"
         who = {"yes": "Both satellites see it.",
                "no data": f"Only {h.sensor} can measure there (the other satellite loses the signal).",
-               "no": f"Only {h.sensor} sees it, so treat it with caution."}[h.seen_by_other]
+               "no": f"Only {h.sensor} sees it, so treat it with caution.",
+               "single": f"Measured by {h.sensor} only; check it against GNSS or published studies."}[h.seen_by_other]
         out.append((GOOD if h.seen_by_other == "yes" else INFO,
                     f"The ground is {verb} by up to {abs(h.peak_mm_yr) / 10:.1f} cm per year over about "
                     f"{h.area_km2:.0f} km² near {h.lat:.3f}°N, {h.lon:.3f}°E. {who}"))
@@ -293,6 +370,10 @@ def plain_summary(result) -> list[tuple[str, str]]:
             out.append((INFO, f"{len(moving) - 1} more moving area(s) found; see the map and the table."))
     else:
         out.append((INFO, "No area is moving faster than these data can reliably detect."))
+    if len(maps) == 1:
+        other = "Sentinel-1" if a.sensor == "NISAR" else "NISAR"
+        out.append((INFO, f"{other} has no usable data for this area and period, so only {a.sensor} was used. "
+                          "The Agreement tab below says how to add it."))
     if math.isfinite(c.pearson_r):
         word = "agree well" if c.pearson_r > 0.7 else "partly agree" if c.pearson_r > 0.4 else "do not agree well"
         out.append((GOOD if c.pearson_r > 0.7 else INFO if c.pearson_r > 0.4 else WARN,
@@ -305,15 +386,17 @@ def plain_summary(result) -> list[tuple[str, str]]:
     if g is not None and a.sensor in g.stats and g.stats[a.sensor].n >= 2:
         s = g.stats[a.sensor]
         out.append((GOOD if s.rmse_mm_yr < 15 else WARN,
-                    f"Checked against {s.n} GNSS ground stations: NISAR is within about {s.rmse_mm_yr:.0f} mm per year."))
+                    f"Checked against {s.n} GNSS ground stations: {a.sensor} is within about {s.rmse_mm_yr:.0f} mm "
+                    "per year."))
     lit = getattr(result, "literature", None) or []
-    tested = [(c, s) for c in lit for s in (a.sensor, b.sensor) if c.verdict.get(s) in ("consistent", "differs")]
+    tested = [(c, s) for c in lit for s in (rm.sensor for rm in maps) if c.verdict.get(s) in ("consistent", "differs")]
     if tested:
         agree = sum(1 for c, s in tested if c.verdict[s] == "consistent")
         out.append((GOOD if agree / len(tested) >= 0.75 else WARN,
                     f"Compared with published studies: {agree} of {len(tested)} comparisons agree."))
-    if math.isfinite(a.noise_rate):
-        out.append((INFO, f"Movements smaller than about {2 * max(a.noise_rate, b.noise_rate) * 1000:.0f} mm per "
+    noise = [rm.noise_rate for rm in maps if math.isfinite(rm.noise_rate)]
+    if noise:
+        out.append((INFO, f"Movements smaller than about {2 * max(noise) * 1000:.0f} mm per "
                           "year cannot be told apart from noise with this amount of data."))
     if c.sign_suspect:
         out.insert(0, (WARN, "The two satellites show opposite motion, which usually means a data-format setting "

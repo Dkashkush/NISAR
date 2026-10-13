@@ -392,13 +392,15 @@ def overlap_notes(nisar: list[Product], s1: list[Product], start=None) -> list[N
     if start and start < NISAR_LAUNCH:
         notes.append(Note("search", INFO, f"NISAR launched on {NISAR_LAUNCH}; the part of your window "
                                           "before that can only be covered by Sentinel-1."))
+    alone = {True: " The analysis continues with the other satellite alone.", False: ""}[bool(nisar) != bool(s1)]
     if not nisar:
         notes.append(Note("search", WARN, "No NISAR pairs selected. Check the AOI/date window, or that "
-                                          "GUNW products are published for this area yet."))
+                                          "GUNW products are published for this area yet." + alone))
     if not s1:
-        notes.append(Note("search", WARN, "No Sentinel-1 pairs selected. ARIA GUNW covers selected regions "
-                                          "and OPERA DISP-S1 covers North America; elsewhere, order HyP3 "
-                                          "InSAR jobs in ASF Vertex and use s1_source: LOCAL."))
+        notes.append(Note("search", WARN, "No Sentinel-1 pairs selected. Ready-made ARIA interferograms cover "
+                                          "selected regions and OPERA DISP-S1 covers North America; elsewhere, "
+                                          "order free HyP3 InSAR pairs from ASF (the comparison notes say how)."
+                                          + alone))
     if not nisar or not s1:
         return notes
     n0, n1 = min(p.date1 for p in nisar), max(p.date2 for p in nisar)

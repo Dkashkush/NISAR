@@ -84,14 +84,17 @@ def _map_row(panels, cmap, vmin, vmax, cbar_label, ref: Reference | None, t, tit
 ZERO_LABEL = {"point": "▲ = reference point", "gnss": "absolute: tied to GNSS", "area": "zero = area median"}
 
 
-def rate_maps(a: RateMap, b: RateMap, c: Comparison, ref: Reference, theme="light", stations=None):
+def rate_maps(maps: list[RateMap], c: Comparison, ref: Reference, theme="light", stations=None):
+    """Each sensor's rate map, then their difference (only when there are two)."""
     t = THEMES[theme]
-    ra, rb = a.rate * 1000, b.rate * 1000
-    vals = np.concatenate([ra.values[np.isfinite(ra.values)], rb.values[np.isfinite(rb.values)]])
+    a = maps[0]
+    panels = [(rm.sensor, rm.rate * 1000) for rm in maps]
+    vals = np.concatenate([da.values[np.isfinite(da.values)] for _, da in panels])
     lim = float(np.nanpercentile(np.abs(vals), 98)) if vals.size else 10.0
     lim = max(lim, 5.0)
     comp = a.component
-    panels = [(f"{a.sensor}", ra), (f"{b.sensor}", rb), (f"{a.sensor} − {b.sensor}", c.difference * 1000)]
+    if c.difference is not None and len(maps) > 1:
+        panels.append((f"{a.sensor} − {maps[1].sensor}", c.difference * 1000))
     points, extra = None, ""
     if stations:
         from pyproj import Transformer
@@ -114,9 +117,9 @@ def east_west_maps(east: dict, theme="light"):
                     None, t, "East-west motion (ascending + descending passes)")
 
 
-def coherence_maps(a: RateMap, b: RateMap, theme="light"):
+def coherence_maps(maps: list[RateMap], theme="light"):
     t = THEMES[theme]
-    panels = [(a.sensor, a.coherence), (b.sensor, b.coherence)]
+    panels = [(rm.sensor, rm.coherence) for rm in maps]
     return _map_row(panels, _sequential(t), 0, 1, "mean coherence (0 = noise, 1 = perfect)", None, t,
                     "Coherence: how much of the radar signal stays stable between passes")
 
@@ -154,13 +157,13 @@ def scatter(a: RateMap, b: RateMap, c: Comparison, theme="light"):
     return fig
 
 
-def coherence_hist(a: RateMap, b: RateMap, threshold: float, inside, theme="light"):
+def coherence_hist(maps: list[RateMap], threshold: float, inside, theme="light"):
     t = THEMES[theme]
     fig, ax = plt.subplots(figsize=(4.8, 3.4), constrained_layout=True)
     _style(fig, ax, t)
     ax.set_facecolor(t["surface"])
     bins = np.linspace(0, 1, 41)
-    for rm in (a, b):
+    for rm in maps:
         v = rm.coherence.values[inside]
         v = v[np.isfinite(v)]
         ax.hist(v, bins=bins, histtype="step", lw=2, color=t["series"][rm.sensor], label=rm.sensor,

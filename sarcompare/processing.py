@@ -308,20 +308,24 @@ class Reference:
         return self.mode == "area"
 
 
-def choose_reference(a: RateMap, b: RateMap, lonlat: tuple[float, float] | None = None,
+def choose_reference(a: RateMap, b: RateMap | None, lonlat: tuple[float, float] | None = None,
                      inside: np.ndarray | None = None, window: int = 7) -> Reference:
-    """Shared reference for both maps.
+    """Shared reference for both maps (or for ``a`` alone when ``b`` is None).
 
     Automatic mode deliberately does *not* search for a "best" pixel: with rate noise of several mm/yr,
     searching thousands of pixels for one that looks typical selects noise (and coherent cities, which
     often subside). The median over every pixel valid in both datasets assumes only that most of the area
     is stable, and averages the noise over the whole scene.
     """
-    ra, rb = a.rate.values, b.rate.values
-    both = np.isfinite(ra) & np.isfinite(rb)
+    both = np.isfinite(a.rate.values)
+    if b is not None:
+        both = both & np.isfinite(b.rate.values)
     if inside is not None and (both & inside).any():
         both = both & inside
     if not both.any():
+        if b is None:
+            raise ValueError(f"{a.sensor} has no valid pixels in the area. Try a lower coherence_threshold or a "
+                             "different AOI/date window.")
         raise ValueError("The two sensors have no valid pixels in common; cannot compare. "
                          "Try a lower coherence_threshold or a different AOI/date window.")
     if lonlat is None:
@@ -334,8 +338,9 @@ def choose_reference(a: RateMap, b: RateMap, lonlat: tuple[float, float] | None 
     if not both[row, col]:
         idx = ndimage.distance_transform_edt(~both, return_indices=True)[1]
         row, col = int(idx[0, row, col]), int(idx[1, row, col])
-        notes.append(Note("reference", WARN, "Your reference point is not valid in both datasets; moved to the "
-                                             "nearest pixel that is."))
+        where = "in both datasets" if b is not None else f"in the {a.sensor} map"
+        notes.append(Note("reference", WARN, f"Your reference point is not valid {where}; moved to the nearest "
+                                             "pixel that is."))
     h = window // 2
     mask = np.zeros_like(both)
     mask[max(0, row - h):row + h + 1, max(0, col - h):col + h + 1] = True
@@ -351,18 +356,22 @@ def apply_reference(rm: RateMap, ref: Reference) -> float:
     return offset
 
 
-def reference_notes(ref: Reference, a: RateMap, b: RateMap) -> list[Note]:
+def reference_notes(ref: Reference, a: RateMap, b: RateMap | None = None) -> list[Note]:
     notes = list(ref.notes)
+    maps = [rm for rm in (a, b) if rm is not None]
+    what = "Both rate maps are" if len(maps) > 1 else f"The {a.sensor} rate map is"
     if ref.mode == "area":
+        valid = "valid in both" if len(maps) > 1 else "with valid data"
         notes.append(Note("reference", INFO,
-                          f"Both rate maps are referenced to their median over the {int(ref.mask.sum()):,} pixels "
-                          "valid in both, i.e. zero = the typical motion of the area. This assumes most of the AOI is "
+                          f"{what} referenced to the median over the {int(ref.mask.sum()):,} pixels {valid}, "
+                          "i.e. zero = the typical motion of the area. This assumes most of the AOI is "
                           "stable. InSAR only measures relative motion; for absolute rates, set reference_lonlat "
                           "to bedrock or a GNSS station (the GNSS check reports how far off zero the area is)."))
         return notes
-    notes.append(Note("reference", INFO, f"Both rate maps are referenced to your point at {ref.lat:.4f}°N, "
+    notes.append(Note("reference", INFO, f"{what} referenced to your point at {ref.lat:.4f}°N, "
                                          f"{ref.lon:.4f}°E (7×7-pixel median). Everything is relative to it."))
-    ca, cb = float(a.coherence.values[ref.row, ref.col]), float(b.coherence.values[ref.row, ref.col])
-    lvl = GOOD if min(ca, cb) > 0.5 else WARN
-    notes.append(Note("reference", lvl, f"Coherence at the reference: {a.sensor} {ca:.2f}, {b.sensor} {cb:.2f}."))
+    coh = {rm.sensor: float(rm.coherence.values[ref.row, ref.col]) for rm in maps}
+    lvl = GOOD if min(coh.values()) > 0.5 else WARN
+    notes.append(Note("reference", lvl, "Coherence at the reference: "
+                                        + ", ".join(f"{k} {v:.2f}" for k, v in coh.items()) + "."))
     return notes

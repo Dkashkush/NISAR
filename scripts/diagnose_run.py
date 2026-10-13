@@ -54,7 +54,8 @@ def nearby_gnss(m: dict, holdings: Path, buffer_deg: float = 0.4) -> None:
     from sarcompare.validate import read_ngl_site_list
 
     w, s, e, n = aoi
-    t0 = min(x for x in (m.get("nisar", {}).get("date_start"), m.get("sentinel1", {}).get("date_start")) if x)
+    starts = [(m.get(k) or {}).get("date_start") for k in ("nisar", "sentinel1")]
+    t0 = min((x for x in starts if x), default="")
     rows = [x for x in read_ngl_site_list(holdings)
             if w - buffer_deg <= x["lon"] <= e + buffer_deg and s - buffer_deg <= x["lat"] <= n + buffer_deg]
     print(f"\nNGL stations within {buffer_deg} deg of the area ({len(rows)}); * = inside, + = has data after {t0}:")
@@ -78,7 +79,10 @@ def main(run_dir: str) -> int:
         if n["stage"] in ("reference",):
             print(f"  [{n['level']}] {n['text']}")
     for key in ("nisar", "sentinel1"):
-        s = m.get(key, {})
+        s = m.get(key)
+        if not s:
+            print(f"{key}: not available for this area and period")
+            continue
         print(f"{key}: {s.get('n_pairs')} pairs {s.get('date_start')} -> {s.get('date_end')}, "
               f"noise {_f(s.get('noise_rate_mm_yr'))} mm/yr, incidence {s.get('incidence_deg', 0):.1f} deg")
     print("\nPairs:")
@@ -86,7 +90,7 @@ def main(run_dir: str) -> int:
         print("  " + "  ".join(str(p.get(k, "")) for k in ("sensor", "date1", "date2", "direction", "track", "name")))
     print("\nPer-pair quality (line of sight, mm): tilt across the area east-west / north-south, spread after the tilt")
     for key in ("nisar", "sentinel1"):
-        for q in m.get(key, {}).get("pairs_qc", []):
+        for q in (m.get(key) or {}).get("pairs_qc", []):
             print(f"  {key:<9} {q['date1']} -> {q['date2']}  valid {q['valid']:4.0%}  tilt E-W {_f(q['tilt_ew_mm']):>5}"
                   f"  N-S {_f(q['tilt_ns_mm']):>5}  spread {q['spread_mm']:5.1f}"
                   + (f"   (ionosphere removed: tilt E-W {_f(q['iono_tilt_ew_mm']):>5} N-S {_f(q['iono_tilt_ns_mm']):>5})"

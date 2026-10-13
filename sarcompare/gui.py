@@ -5,6 +5,7 @@ Start it with ``sarcompare gui`` (or double-click Start-GUI.bat / start-gui.comm
 
 from __future__ import annotations
 
+import math
 import os
 from datetime import date, timedelta
 from pathlib import Path
@@ -418,6 +419,11 @@ def run_pipeline(cfg: Config, search_only: bool):
         if rows:
             st.success(f"Found {len(p.result.nisar_products)} NISAR and {len(p.result.s1_products)} Sentinel-1 image "
                        f"pairs (about {sum(r['size_mb'] or 0 for r in rows) / 1000:.1f} GB to download).")
+            for sensor, found in (("Sentinel-1", p.result.s1_products), ("NISAR", p.result.nisar_products)):
+                if not found:
+                    other = "NISAR" if sensor == "Sentinel-1" else "Sentinel-1"
+                    st.info(f"No ready-made {sensor} pairs for this area and period: the analysis will use "
+                            f"{other} alone. The search notes above say how to add {sensor}.")
             st.dataframe(rows, width="stretch", hide_index=True)
         else:
             st.warning("No usable image pairs were found for this area and period. See Help & FAQ.")
@@ -429,6 +435,8 @@ def show_results(res):
     from sarcompare.maps import results_map
 
     c = res.comparison
+    maps = res.rates  # one map when a satellite has no data for the area
+    sensors = [rm.sensor for rm in maps]
     st.markdown("---")
     title = "## Results"
     if res.config.extra.get("synthetic"):
@@ -440,11 +448,20 @@ def show_results(res):
             st.markdown(f"{ICON.get(level, 'ℹ️')} {text}")
 
     m = st.columns(5)
-    m[0].metric("Area NISAR can measure", f"{c.coverage_a:.0%}")
-    m[1].metric("Area Sentinel-1 can measure", f"{c.coverage_b:.0%}")
-    m[2].metric("Agreement (0 to 1)", f"{c.pearson_r:.2f}", help="Correlation between the two speed maps.")
-    m[3].metric("Typical difference", f"{c.rmsd_mm_yr:.0f} mm/yr")
-    m[4].metric("Moving areas found", len(c.hotspots))
+    if res.single:
+        other = "Sentinel-1" if sensors[0] == "NISAR" else "NISAR"
+        m[0].metric(f"Area {sensors[0]} can measure", f"{c.coverage_a:.0%}")
+        m[1].metric(other, "No data", help=f"{other} has no usable data for this area and period. "
+                                            "See All notes for how to add it.")
+        m[2].metric("Noise (1σ)", f"{c.noise_a_mm_yr:.0f} mm/yr" if math.isfinite(c.noise_a_mm_yr) else "n/a",
+                    help="Movements smaller than about twice this cannot be told apart from noise.")
+        m[3].metric("Moving areas found", len(c.hotspots))
+    else:
+        m[0].metric("Area NISAR can measure", f"{c.coverage_a:.0%}")
+        m[1].metric("Area Sentinel-1 can measure", f"{c.coverage_b:.0%}")
+        m[2].metric("Agreement (0 to 1)", f"{c.pearson_r:.2f}", help="Correlation between the two speed maps.")
+        m[3].metric("Typical difference", f"{c.rmsd_mm_yr:.0f} mm/yr")
+        m[4].metric("Moving areas found", len(c.hotspots))
 
     st.markdown("#### Map")
     st.caption("Switch layers with the box at the top right. Click markers for details. Red = sinking, "
@@ -460,15 +477,17 @@ def show_results(res):
         with st.expander(f"Moving areas ({len(c.hotspots)})", expanded=True):
             st.dataframe([{"Detected by": h.sensor, "Latitude": round(h.lat, 4), "Longitude": round(h.lon, 4),
                            "Area (km²)": round(h.area_km2, 1), "Peak (mm/yr)": round(h.peak_mm_yr),
-                           "Seen by the other satellite": {"yes": "Yes", "no": "No",
-                                                           "no data": "No data there"}[h.seen_by_other]}
+                           "Seen by the other satellite": {"yes": "Yes", "no": "No", "no data": "No data there",
+                                                           "single": "Only one satellite here"}[h.seen_by_other]}
                           for h in c.hotspots], hide_index=True, width="stretch")
 
     st.markdown("#### More detail")
     tabs = st.tabs(["⬇️ Download", "Side by side", "Agreement", "Checks", "Data used", "All notes"])
     with tabs[1]:
         st.image(res.figures["rate_maps"]["light"], width="stretch")
-        st.caption("Left: NISAR. Middle: Sentinel-1. Right: their difference. Grey = no reliable data.")
+        st.caption("Left: NISAR. Middle: Sentinel-1. Right: their difference. Grey = no reliable data."
+                   if not res.single else f"{sensors[0]} only (the other satellite has no data here). "
+                                          "Grey = no reliable data.")
         if "east_west" in res.figures:
             st.image(res.figures["east_west"]["light"], width="stretch")
             st.caption("Sideways motion, measured by combining passes from the north-going (ascending) and "
@@ -478,11 +497,16 @@ def show_results(res):
         st.caption("Coherence = how stable the radar signal is between visits. Dark = good. Vegetation usually "
                    "lowers it, much more for Sentinel-1 than for NISAR.")
     with tabs[2]:
-        col, txt = st.columns([1, 1], gap="large")
-        col.image(res.figures["scatter"]["light"], width="stretch")
-        txt.markdown("Each dot cloud compares the two satellites pixel by pixel. If they agreed perfectly, "
-                     "everything would sit on the dashed 1:1 line.")
-        show_notes([n for n in res.notes if n.stage == "compare"], txt)
+        if "scatter" in res.figures:
+            col, txt = st.columns([1, 1], gap="large")
+            col.image(res.figures["scatter"]["light"], width="stretch")
+            txt.markdown("Each dot cloud compares the two satellites pixel by pixel. If they agreed perfectly, "
+                         "everything would sit on the dashed 1:1 line.")
+            show_notes([n for n in res.notes if n.stage == "compare"], txt)
+        else:
+            st.info("Only one satellite has data for this area, so there is nothing to compare it with. Its "
+                    "results are checked against GNSS and published studies instead (Checks tab).")
+            show_notes([n for n in res.notes if n.stage == "compare"])
     with tabs[3]:
         vnotes = [n for n in res.notes if n.stage == "validate"]
         if not vnotes:
@@ -494,10 +518,9 @@ def show_results(res):
             from .validate import station_rate
 
             st.dataframe([{"Station": s.site, "Latitude": round(s.lat, 4), "Longitude": round(s.lon, 4),
-                           "NISAR (mm/yr)": round(s.insar.get("NISAR", float("nan")), 1),
-                           "GNSS, NISAR dates": round(station_rate(s, "NISAR"), 1),
-                           "Sentinel-1 (mm/yr)": round(s.insar.get("Sentinel-1", float("nan")), 1),
-                           "GNSS, Sentinel-1 dates": round(station_rate(s, "Sentinel-1"), 1),
+                           **{k: v for sn in sensors for k, v in (
+                               (f"{sn} (mm/yr)", round(s.insar.get(sn, float("nan")), 1)),
+                               (f"GNSS, {sn} dates", round(station_rate(s, sn), 1)))},
                            "GNSS long-term (mm/yr)": round(s.up_mm_yr, 1)}
                           for s in res.gnss.stations], hide_index=True, width="stretch")
         else:
@@ -512,10 +535,9 @@ def show_results(res):
                            "Published (mm/yr)": (f"{c.published_min:+.0f} to {c.published_max:+.0f}"
                                                  if c.published_min is not None and c.published_max is not None
                                                  else f"{c.published_mm_yr:+.0f}"),
-                           "NISAR (mm/yr)": round(c.insar.get("NISAR", float("nan")), 0),
-                           "NISAR check": names.get(c.verdict.get("NISAR"), ""),
-                           "Sentinel-1 (mm/yr)": round(c.insar.get("Sentinel-1", float("nan")), 0),
-                           "Sentinel-1 check": names.get(c.verdict.get("Sentinel-1"), "")}
+                           **{k: v for sn in sensors for k, v in (
+                               (f"{sn} (mm/yr)", round(c.insar.get(sn, float("nan")), 0)),
+                               (f"{sn} check", names.get(c.verdict.get(sn), "")))}}
                           for c in res.literature], hide_index=True, width="stretch")
             st.caption("Vertical rates, negative = sinking. Differences often come from different periods: "
                        "subsidence speeds up in droughts and slows after wet years.")

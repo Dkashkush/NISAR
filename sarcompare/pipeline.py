@@ -18,7 +18,8 @@ from . import plots
 from .compare import Comparison, compare
 from .config import Config
 from .download import download_products
-from .interpret import comparison_notes, gnss_notes, literature_notes, pair_notes, published_notes, stack_notes
+from .interpret import (comparison_notes, gnss_notes, literature_notes, missing_sensor_notes, pair_notes,
+                        published_notes, stack_notes)
 from .notes import INFO, WARN, Note
 from .processing import (RateMap, Reference, aoi_mask, apply_reference, choose_reference, combine_directions,
                          common_grid, merge_frames, reference_notes, stack_rates, to_vertical)
@@ -53,6 +54,15 @@ class RunResult:
     gnss: object | None = None  # validate.GnssValidation
     published: list = field(default_factory=list)  # [validate.PublishedValidation]
     literature: list = field(default_factory=list)  # [validate.LiteratureCheck]
+
+    @property
+    def rates(self) -> list[RateMap]:
+        """The rate maps that exist, NISAR first. Where one satellite has no data, the run uses the other alone."""
+        return [rm for rm in (self.nisar_rate, self.s1_rate) if rm is not None]
+
+    @property
+    def single(self) -> bool:
+        return len(self.rates) == 1
 
 
 def _print_event(ev: Event) -> None:
@@ -198,7 +208,7 @@ class Pipeline:
         rates = {}
         for sensor, products in ((NISAR, self.result.nisar_products), (SENTINEL1, self.result.s1_products)):
             if not products:
-                raise RuntimeError(f"No {sensor} products to compare; see the search notes above.")
+                continue  # explained below; the other satellite is used alone
             groups: dict = {}  # flight direction -> frame -> interferograms
             tracks: dict = {}  # flight direction -> track numbers
             for k, p in enumerate(products):
@@ -213,7 +223,10 @@ class Pipeline:
                 self.emit("load", f"Loaded {ifg.sensor} pair {ifg.date1} → {ifg.date2}",
                           pair_notes(ifg, cfg.coherence_threshold), progress=(k + 1) / len(products))
             if not groups:
-                raise RuntimeError(f"None of the {sensor} products could be read over this AOI.")
+                self.emit("load", f"No {sensor} pair could be used",
+                          [Note("load", WARN, f"None of the {len(products)} selected {sensor} products could be "
+                                              "read over this area (see the messages above).")])
+                continue
             los: dict = {}
             join_notes: list[Note] = []
             for direction, frames in groups.items():
@@ -241,7 +254,15 @@ class Pipeline:
             self.result.east[sensor] = east
             self.emit("stack", f"{sensor}: mean {rm.component} rate from {rm.n_pairs} pairs",
                       _dedupe(load_notes) + stack_notes(rm))
-        self.result.nisar_rate, self.result.s1_rate = rates[NISAR], rates[SENTINEL1]
+        if not rates:
+            raise RuntimeError("Neither NISAR nor Sentinel-1 has usable image pairs for this area and period; see "
+                               "the search notes above. Try a larger area, a longer period or other dates.")
+        self.result.nisar_rate, self.result.s1_rate = rates.get(NISAR), rates.get(SENTINEL1)
+        missing = [k for k in (NISAR, SENTINEL1) if k not in rates]
+        if missing:
+            present = next(iter(rates))
+            self.emit("stack", f"Continuing with {present} alone (no usable {missing[0]} data here)",
+                      missing_sensor_notes(present, missing[0], self.aoi.center))
 
     def _gnss_stations(self):
         """GNSS stations (stations, skipped, source), fetched once and shared by the reference and validation."""
@@ -250,7 +271,7 @@ class Pipeline:
 
             cfg, r = self.cfg, self.result
             if str(cfg.gnss).upper() == "NGL":
-                rates = [r.nisar_rate, r.s1_rate]
+                rates = r.rates
                 start, end = min(rm.date_start for rm in rates), max(rm.date_end for rm in rates)
                 self.emit("validate", "Fetching GNSS stations from the Nevada Geodetic Laboratory")
                 stations, skipped = V.ngl_stations(
@@ -264,20 +285,21 @@ class Pipeline:
         return self._gnss_cache
 
     def _tie_to_gnss(self, ref: Reference) -> list[Note]:
-        """Make both area-referenced maps match GNSS (absolute rates). Both or neither are tied."""
+        """Make the area-referenced maps match GNSS (absolute rates). All maps or none are tied."""
         from .validate import fit_gnss_correction
 
-        a, b = self.result.nisar_rate, self.result.s1_rate
+        maps = self.result.rates
         try:
             stations, _, source = self._gnss_stations()
         except Exception as e:  # network or file problems: keep the area reference
             return [Note("reference", WARN, f"Could not fetch GNSS to make the rates absolute "
                                             f"({type(e).__name__}: {e}); zero stays the area median.")]
-        fits = {rm.sensor: fit_gnss_correction(rm, stations, self.cfg.gnss_correction) for rm in (a, b)}
+        fits = {rm.sensor: fit_gnss_correction(rm, stations, self.cfg.gnss_correction) for rm in maps}
         if any(f is None for f in fits.values()):
-            return [Note("reference", INFO, "No GNSS station has valid data from both satellites, so the rates stay "
+            whose = "from both satellites" if len(maps) > 1 else f"from {maps[0].sensor}"
+            return [Note("reference", INFO, f"No GNSS station has valid data {whose}, so the rates stay "
                                             "relative (zero = the area median).")]
-        for rm in (a, b):
+        for rm in maps:
             rm.rate = rm.rate - fits[rm.sensor][0]
         self.result.gnss_corrections = {k: f[1] for k, f in fits.items()}
         ref.mode = "gnss"
@@ -307,15 +329,18 @@ class Pipeline:
         return notes
 
     def reference_and_compare(self) -> Comparison:
-        a, b = self.result.nisar_rate, self.result.s1_rate
+        maps = self.result.rates
+        a, b = maps[0], (maps[1] if len(maps) > 1 else None)  # b is None when only one satellite has data
         ref = choose_reference(a, b, self.cfg.reference_lonlat, self.result.inside)
-        apply_reference(a, ref)
-        apply_reference(b, ref)
+        for rm in maps:
+            apply_reference(rm, ref)
         notes = reference_notes(ref, a, b)
         if ref.mode == "area" and self.cfg.gnss and self.cfg.tie_to_gnss:
-            ra, rb = a.rate.values, b.rate.values
-            joint = np.isfinite(ra) & np.isfinite(rb) & self.result.inside
-            r0 = float(np.corrcoef(ra[joint], rb[joint])[0, 1]) if joint.sum() > 10 else float("nan")
+            r0 = float("nan")
+            if b is not None:
+                ra, rb = a.rate.values, b.rate.values
+                joint = np.isfinite(ra) & np.isfinite(rb) & self.result.inside
+                r0 = float(np.corrcoef(ra[joint], rb[joint])[0, 1]) if joint.sum() > 10 else float("nan")
             if math.isfinite(r0) and r0 < -0.3:  # a GNSS fit could partly hide a sign error: resolve that first
                 notes.append(Note("reference", WARN, "The two maps are anti-correlated, which usually means a sign "
                                                      "setting is wrong, so they are not tied to GNSS until that is "
@@ -323,10 +348,12 @@ class Pipeline:
             else:
                 notes += self._tie_to_gnss(ref)
         self.result.reference = ref
-        self.emit("reference", "Put both rate maps on a common reference", notes)
+        self.emit("reference", "Put both rate maps on a common reference" if b is not None
+                  else f"Set the zero of the {a.sensor} rate map", notes)
         c = compare(a, b, self.result.inside)
         self.result.comparison = c
-        self.emit("compare", "Compared NISAR and Sentinel-1", comparison_notes(c, a, b, ref.mode))
+        self.emit("compare", "Compared NISAR and Sentinel-1" if b is not None
+                  else f"Measured ground motion with {a.sensor} alone", comparison_notes(c, a, b, ref.mode))
         return c
 
     def validate(self) -> None:
@@ -334,7 +361,7 @@ class Pipeline:
         from . import validate as V
 
         cfg, r = self.cfg, self.result
-        rates = [r.nisar_rate, r.s1_rate]
+        rates = r.rates
         if cfg.gnss:
             notes: list[Note] = []
             try:
@@ -374,22 +401,24 @@ class Pipeline:
 
     def make_figures(self) -> None:
         r = self.result
-        a, b, c = r.nisar_rate, r.s1_rate, r.comparison
+        maps, c = r.rates, r.comparison
+        used = {rm.sensor for rm in maps}
+        pairs = {NISAR: r.nisar_products, SENTINEL1: r.s1_products}
         builders = {
             "timeline": lambda th: plots.timeline(
-                {NISAR: [(i.date1, i.date2) for i in r.nisar_products],
-                 SENTINEL1: [(i.date1, i.date2) for i in r.s1_products]}, th),
-            "coherence_maps": lambda th: plots.coherence_maps(a, b, th),
-            "coherence_hist": lambda th: plots.coherence_hist(a, b, self.cfg.coherence_threshold, r.inside, th),
-            "rate_maps": lambda th: plots.rate_maps(a, b, c, r.reference, th,
+                {k: [(i.date1, i.date2) for i in v] for k, v in pairs.items() if k in used}, th),
+            "coherence_maps": lambda th: plots.coherence_maps(maps, th),
+            "coherence_hist": lambda th: plots.coherence_hist(maps, self.cfg.coherence_threshold, r.inside, th),
+            "rate_maps": lambda th: plots.rate_maps(maps, c, r.reference, th,
                                                     r.gnss.stations if r.gnss else None),
-            "scatter": lambda th: plots.scatter(a, b, c, th),
         }
+        if len(maps) > 1:
+            builders["scatter"] = lambda th: plots.scatter(maps[0], maps[1], c, th)
         east = {k: v for k, v in r.east.items() if v is not None}
         if east:
             builders["east_west"] = lambda th: plots.east_west_maps(east, th)
         if r.gnss and r.gnss.stations:
-            builders["gnss"] = lambda th: plots.gnss_scatter(r.gnss, [NISAR, SENTINEL1], th)
+            builders["gnss"] = lambda th: plots.gnss_scatter(r.gnss, [rm.sensor for rm in maps], th)
         for k, pv in enumerate(r.published):
             builders[f"published_{k}"] = lambda th, pv=pv: plots.published_panels(pv, list(pv.stats),
                                                                                   r.reference, th)
@@ -403,13 +432,14 @@ class Pipeline:
         out = self.cfg.run_dir
         out.mkdir(parents=True, exist_ok=True)
         r = self.result
-        comp = r.nisar_rate.component
-        for key, da in ((f"nisar_{comp}_rate_m_per_yr", r.nisar_rate.rate),
-                        (f"s1_{comp}_rate_m_per_yr", r.s1_rate.rate),
-                        ("nisar_minus_s1_m_per_yr", r.comparison.difference),
-                        ("nisar_coherence", r.nisar_rate.coherence), ("s1_coherence", r.s1_rate.coherence),
-                        *((f"{'nisar' if k == NISAR else 's1'}_east_west_rate_m_per_yr", v.rate)
-                          for k, v in r.east.items() if v is not None)):
+        comp = r.rates[0].component
+        short = {NISAR: "nisar", SENTINEL1: "s1"}
+        layers = [(f"{short[rm.sensor]}_{comp}_rate_m_per_yr", rm.rate) for rm in r.rates]
+        if r.comparison.difference is not None:
+            layers.append(("nisar_minus_s1_m_per_yr", r.comparison.difference))
+        layers += [(f"{short[rm.sensor]}_coherence", rm.coherence) for rm in r.rates]
+        layers += [(f"{short[k]}_east_west_rate_m_per_yr", v.rate) for k, v in r.east.items() if v is not None]
+        for key, da in layers:
             path = out / f"{key}.tif"
             da.rio.to_raster(path, driver="GTiff", compress="deflate")
             r.outputs[key] = str(path)
@@ -419,7 +449,7 @@ class Pipeline:
             (fig_dir / f"{name}.png").write_bytes(themes["light"])
         metrics = {
             "config": self.cfg.to_dict(),
-            "nisar": _rate_summary(r.nisar_rate), "sentinel1": _rate_summary(r.s1_rate),
+            "nisar": _rate_summary(r.nisar_rate), "sentinel1": _rate_summary(r.s1_rate),  # None = no data
             "east_west": {k: _rate_summary(v) for k, v in r.east.items() if v is not None},
             "reference": {"mode": r.reference.mode, "lon": r.reference.lon, "lat": r.reference.lat},
             "comparison": r.comparison.to_dict(),
@@ -459,7 +489,9 @@ def _dedupe(notes: list[Note]) -> list[Note]:
     return out
 
 
-def _rate_summary(rm: RateMap) -> dict:
+def _rate_summary(rm: RateMap | None) -> dict | None:
+    if rm is None:
+        return None
     return {"component": rm.component, "n_pairs": rm.n_pairs, "total_days": rm.total_days,
             "date_start": str(rm.date_start), "date_end": str(rm.date_end), "incidence_deg": rm.incidence_deg,
             "wavelength_m": rm.wavelength, "noise_rate_mm_yr": rm.noise_rate * 1000, "pairs_qc": rm.pair_qc,

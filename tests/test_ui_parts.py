@@ -98,3 +98,30 @@ def test_place_search_in_the_app(monkeypatch):
     assert at.session_state["view"] == (45.4371, 12.3326, 11) and at.session_state["bbox"] is None
     next(b for b in at.button if b.label == "Use a box around this place").click().run()
     assert at.session_state["bbox"] == (12.28, 45.38, 12.4, 45.48)
+
+
+def _single_results_page(data_dir, out_dir, empty_dir):
+    from dataclasses import replace
+
+    from sarcompare.demo import demo_config
+    from sarcompare.gui import show_results
+    from sarcompare.pipeline import Pipeline
+
+    cfg = replace(demo_config(data_dir, out_dir), s1_dir=empty_dir, name="nisar_only")
+    show_results(Pipeline(cfg, on_event=lambda e: None).run(download=False))
+
+
+def test_results_page_with_one_satellite(demo_cfg, tmp_path):
+    """The results page works when Sentinel-1 has no data for the area (NISAR alone)."""
+    from streamlit.testing.v1 import AppTest
+
+    (tmp_path / "empty").mkdir()
+    data_dir = Path(demo_cfg.nisar_dir).parent
+    at = AppTest.from_function(_single_results_page, default_timeout=300,
+                               args=(str(data_dir), str(tmp_path / "out"), str(tmp_path / "empty")))
+    at.run()
+    assert not at.exception, at.exception
+    labels = {m.label: m.value for m in at.metric}
+    assert labels.get("Sentinel-1") == "No data" and "Area NISAR can measure" in labels
+    text = " ".join(md.value for md in at.markdown) + " ".join(i.value for i in at.info)
+    assert "only NISAR was used" in text and "nothing to compare it with" in text

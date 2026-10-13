@@ -68,3 +68,46 @@ def test_sign_override_is_flagged(demo_cfg):
     result = Pipeline(cfg, on_event=lambda e: None).run(download=False)
     assert result.comparison.sign_suspect
     assert any("sign-convention" in n.text for n in result.notes)
+
+
+def test_runs_with_one_satellite_only(demo_cfg, tmp_path):
+    """Where one satellite has no data (common for Sentinel-1 interferograms), the run continues with the other."""
+    from dataclasses import replace
+
+    from sarcompare.interpret import plain_summary
+    from sarcompare.maps import results_map
+
+    empty = tmp_path / "no_s1"
+    empty.mkdir()
+    cfg = replace(demo_cfg, s1_dir=str(empty), name="nisar_only", output_dir=str(tmp_path / "out"))
+    events = []
+    result = Pipeline(cfg, on_event=events.append).run(download=False)
+    assert result.s1_rate is None and result.nisar_rate is not None and result.single
+    c = result.comparison
+    assert c.single and c.difference is None and not np.isfinite(c.pearson_r)
+    assert c.coverage_a > 0.9
+    # the subsidence bowl and the landslide are still found, marked as seen by one satellite only
+    assert any(h.peak_mm_yr < -50 and h.seen_by_other == "single" for h in c.hotspots)
+    assert result.reference.mode == "gnss"  # still tied to GNSS
+    assert result.gnss.stats["NISAR"].n >= 2 and "Sentinel-1" not in result.gnss.stats
+    assert any("NISAR alone" in n.text for n in result.notes) and any("HyP3" in n.text for n in result.notes)
+    assert "scatter" not in result.figures and "rate_maps" in result.figures
+    assert not any(k.startswith("s1_") or "minus" in k for k in result.outputs)
+    metrics = json.loads(Path(result.outputs["metrics"]).read_text())
+    assert metrics["sentinel1"] is None and metrics["nisar"]["n_pairs"] > 0
+    report = Path(result.outputs["report"]).read_text()
+    assert "NISAR ground motion" in report and "not available" in report
+    assert any("only" in text and "NISAR" in text for _, text in plain_summary(result))
+    results_map(result).get_root().render()
+
+
+def test_stops_when_neither_satellite_has_data(demo_cfg, tmp_path):
+    from dataclasses import replace
+
+    import pytest
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    cfg = replace(demo_cfg, s1_dir=str(empty), nisar_dir=str(empty), name="nothing", output_dir=str(tmp_path / "out"))
+    with pytest.raises(RuntimeError, match="Neither NISAR nor Sentinel-1"):
+        Pipeline(cfg, on_event=lambda e: None).run(download=False)

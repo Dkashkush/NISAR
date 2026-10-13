@@ -182,18 +182,22 @@ def _overlay(da_m, vmin: float, vmax: float, cmap) -> tuple[str, list]:
 
 
 def results_map(result) -> folium.Map:
-    a, b, c = result.nisar_rate, result.s1_rate, result.comparison
+    c = result.comparison
+    maps = [rm for rm in (result.nisar_rate, result.s1_rate) if rm is not None]
     w, s, e, n = result.config.get_aoi().bounds
     # No zoom/fade animation: when the map first renders below the visible part of the page, an unfinished
     # animation can leave overlays drawn at the wrong zoom.
     m = folium.Map(location=[(s + n) / 2, (w + e) / 2], zoom_start=_zoom_for(w, s, e, n, 1000), tiles=None,
                    control_scale=True, zoom_animation=False, fade_animation=False, marker_zoom_animation=False)
     _base(m)
-    vals = np.concatenate([x[np.isfinite(x)] for x in (a.rate.values * 1000, b.rate.values * 1000)])
+    vals = np.concatenate([x[np.isfinite(x)] for x in (rm.rate.values * 1000 for rm in maps)])
     lim = max(float(np.nanpercentile(np.abs(vals), 98)) if vals.size else 10.0, 5.0)
     cmap = _diverging(THEMES["light"])
-    for name, da, show in ((f"{a.sensor} (L-band)", a.rate, True), (f"{b.sensor} (C-band)", b.rate, False),
-                           (f"Difference {a.sensor} − {b.sensor}", c.difference, False)):
+    band = {"NISAR": "L-band", "Sentinel-1": "C-band"}
+    layers = [(f"{rm.sensor} ({band.get(rm.sensor, 'radar')})", rm.rate, k == 0) for k, rm in enumerate(maps)]
+    if c.difference is not None and len(maps) > 1:
+        layers.append((f"Difference {maps[0].sensor} − {maps[1].sensor}", c.difference, False))
+    for name, da, show in layers:
         url, bounds = _overlay(da, -lim, lim, cmap)
         folium.raster_layers.ImageOverlay(url, bounds=bounds, name=name, show=show, interactive=False,
                                           zindex=2).add_to(m)
@@ -203,7 +207,8 @@ def results_map(result) -> folium.Map:
     for h in c.hotspots:
         verb = "Sinking" if h.peak_mm_yr < 0 else "Rising"
         seen = {"yes": "Seen by both satellites", "no data": "Other satellite has no data here",
-                "no": "Not seen by the other satellite"}[h.seen_by_other]
+                "no": "Not seen by the other satellite",
+                "single": "Only one satellite has data for this area"}[h.seen_by_other]
         popup = (f"<b>{verb} area</b><br>Detected by {html.escape(h.sensor)}<br>Peak {h.peak_mm_yr:+.0f} mm/yr"
                  f"<br>Area {h.area_km2:.1f} km²<br>{seen}")
         colour = "#b3261e" if h.peak_mm_yr < 0 else "#1f5f8b"
