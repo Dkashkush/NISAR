@@ -89,15 +89,13 @@ def main() -> int:
                 ifg = get(f"{base}/{track}/{frame}/interferograms/")
                 pairs = [p.strip("/") for p in links(ifg)]
                 print(f"    interferograms: {len(pairs)}; first {pairs[:3]}; last {pairs[-5:]}")
-                for pair in sorted(pairs)[-2:]:  # the most recent pairs
-                    one = get(f"{base}/{track}/{frame}/interferograms/{pair}/")
-                    print(f"    files in {pair}: {links(one)}")
-                    for name in links(one):
-                        if name.endswith(".tif"):
-                            h = S.head(f"{base}/{track}/{frame}/interferograms/{pair}/{name}", timeout=60,
-                                       allow_redirects=True)
-                            print(f"      {name}: HTTP {h.status_code}, {h.headers.get('Content-Length')} bytes, "
-                                  f"ranges: {h.headers.get('Accept-Ranges')}, {h.headers.get('Content-Type')}")
+                for pair in sorted(pairs)[-2:] + sorted(pairs)[-40:-39]:  # recent pairs; folders may not list
+                    for b in (base, base + ".future"):
+                        for suffix in ("geo.unw.tif", "geo.cc.tif", "geo.diff_pha.tif", "geo.diff.png"):
+                            url = f"{b}/{track}/{frame}/interferograms/{pair}/{pair}.{suffix}"
+                            h = S.head(url, timeout=60, allow_redirects=True)
+                            print(f"      {url.split('nceo_geohazards/')[1]}: HTTP {h.status_code}, "
+                                  f"{h.headers.get('Content-Length')} bytes, ranges {h.headers.get('Accept-Ranges')}")
                 spans = {}
                 for pair in pairs:
                     try:
@@ -112,9 +110,20 @@ def main() -> int:
                 ep = get(f"{base}/{track}/{frame}/epochs/")
                 eps = [e.strip("/") for e in links(ep)]
                 print(f"    epochs: {len(eps)}; last {sorted(eps)[-3:]}")
-                if eps:
-                    last = get(f"{base}/{track}/{frame}/epochs/{sorted(eps)[-1]}/")
-                    print(f"    files in epoch {sorted(eps)[-1]}: {links(last)}")
+                for ep_ in sorted(eps)[-1:] + sorted(eps)[-20:-19]:
+                    for b in (base, base + ".future"):
+                        for suffix in ("geo.mli.tif", "sltd.geo.tif", "ztd.geo.tif", "geo.iono.code.tif",
+                                       "geo.sltd.tif"):
+                            url = f"{b}/{track}/{frame}/epochs/{ep_}/{ep_}.{suffix}"
+                            h = S.head(url, timeout=60, allow_redirects=True)
+                            if h.status_code == 200:
+                                print(f"      {url.split('nceo_geohazards/')[1]}: {h.headers.get('Content-Length')} bytes")
+                    print(f"      (epoch {ep_} checked)")
+                for name in ("geo.U.tif", "geo.E.tif", "geo.hgt.tif"):
+                    url = f"{base}/{track}/{frame}/metadata/{frame}.{name}"
+                    h = S.head(url, timeout=60, allow_redirects=True)
+                    print(f"      {name}: HTTP {h.status_code}, {h.headers.get('Content-Length')} bytes, "
+                          f"ranges {h.headers.get('Accept-Ranges')}")
                 for sub in links(fr):
                     if sub.strip("/") not in ("metadata", "interferograms", "epochs"):
                         x = get(f"{base}/{track}/{frame}/{sub}")
