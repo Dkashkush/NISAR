@@ -100,6 +100,31 @@ Winter 2025-26 (Nov 24 → Mar 24), about 5,200 km², 9 GNSS stations.
 **Conclusion:** for slow or seasonal motion, a few months of data are not enough. Use a year or more, so
 the atmosphere of individual dates averages out and the seasonal cycle does not dominate.
 
+## Tehran: a place without ready-made Sentinel-1 (NISAR alone, then HyP3)
+
+October 2026, the example area `examples/tehran.yaml` (950 km²).
+
+- **No ready-made Sentinel-1 interferograms** exist here (ARIA: none; OPERA covers only North America). The run
+  continued with NISAR alone instead of stopping: 21 NISAR pairs, ascending track 56 (frames 19 + 20) and
+  descending track 136 (frame 71), 30 Jun → 9 Oct 2026 (96 days), 85% of the area measured, noise ≈ 34 mm/yr.
+- **No GNSS check was possible:** 7 Nevada Geodetic Laboratory stations lie in or near the area, but none has
+  data after June 2026 (TEHN, the longest, ends in July 2024). The rates therefore stay relative to the area
+  median.
+- **What the map shows, and what it should not be trusted for yet.** The fastest-sinking spots are in the
+  south-west and centre of the area (6.6 km² near 35.605°N, 51.183°E, up to −387 mm/yr; 9.7 km² near
+  35.641°N, 51.316°E, up to −224 mm/yr, relative). But the northern strip of the area reads +220 to +238 mm/yr
+  everywhere along it, in both orbit directions. That uniform step is most likely atmosphere (the strip is the
+  higher foothill ground) over a short summer window, not uplift; the two ascending frames also disagree by
+  57 mm/yr (1σ) where they overlap. With no GNSS and no second satellite, nothing here can confirm or rule
+  this out, which is exactly the case Sentinel-1 from HyP3 is for. Use a longer period as well.
+- **Sentinel-1 from HyP3 (planned and checked, not ordered).** The app found Sentinel-1 images on ascending track
+  28 and descending track 35 covering 100% of the area. **Sentinel-1A stopped imaging these tracks on 18 June
+  2026 and Sentinel-1D took over from 25 June**; a first version of the plan chose the satellite with the most
+  images and found no pairs on the NISAR dates, which is now fixed. The plan is 8 Sentinel-1D pairs (4 per
+  direction, 12-24 days each) on the NISAR dates, 80 of the account's 8,000 monthly credits. HyP3 validated
+  all 8 jobs in check-only mode (nothing was submitted). To complete this test: run the workflow with
+  `hyp3: order`, then run Tehran again an hour or two later.
+
 ## What changed in the app because of these tests
 
 | Found in a real run | Fix |
@@ -114,6 +139,8 @@ the atmosphere of individual dates averages out and the seasonal cycle does not 
 | A track that only clips the area was chosen | Geometry and frames chosen by footprint coverage |
 | A single unavailable file stopped the run | That file is skipped; a refused login still stops the run |
 | Single-pixel outliers reported as peaks | Peak = fastest 5% of the area |
+| No Sentinel-1 interferograms for the area stopped the run | The run continues with NISAR alone; Sentinel-1 can be ordered from HyP3 |
+| Sentinel-1A handed its tracks to Sentinel-1D in mid-2026 | HyP3 plan chooses the satellite whose images match the NISAR dates |
 
 ## Still to do
 
