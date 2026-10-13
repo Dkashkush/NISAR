@@ -66,6 +66,7 @@ def main() -> int:
     ap.add_argument("--point", nargs=2, type=float, metavar=("LON", "LAT"),
                     help="only inspect frames whose outline contains this point")
     a = ap.parse_args()
+    a.wanted = []
     for base in LICSAR_BASES:
         print(f"\n=== LiCSAR base {base}")
         root = get(base + "/")
@@ -77,6 +78,7 @@ def main() -> int:
             if a.point:
                 frames = [f for f in frames if covers(f"{base}/{track}/{f}/metadata/{f}-poly.txt", *a.point)]
                 print(f"    frames containing {a.point}: {frames}")
+                a.wanted += frames
             for frame in frames[: a.frames]:
                 print(f"\n  --- frame {frame}")
                 fr = get(f"{base}/{track}/{frame}/")
@@ -89,7 +91,7 @@ def main() -> int:
                 ifg = get(f"{base}/{track}/{frame}/interferograms/")
                 pairs = [p.strip("/") for p in links(ifg)]
                 print(f"    interferograms: {len(pairs)}; first {pairs[:3]}; last {pairs[-5:]}")
-                for pair in sorted(pairs)[-2:] + sorted(pairs)[-40:-39]:  # recent pairs; folders may not list
+                for pair in sorted(pairs)[-1:]:  # recent pair; folders may not list
                     for b in (base, base + ".future"):
                         for suffix in ("geo.unw.tif", "geo.cc.tif", "geo.diff_pha.tif", "geo.diff.png"):
                             url = f"{b}/{track}/{frame}/interferograms/{pair}/{pair}.{suffix}"
@@ -128,6 +130,44 @@ def main() -> int:
                     if sub.strip("/") not in ("metadata", "interferograms", "epochs"):
                         x = get(f"{base}/{track}/{frame}/{sub}")
                         print(f"    {sub}: {links(x)[:30]}")
+    ceda = "https://dap.ceda.ac.uk/neodc/comet/data/licsar_products"
+    print(f"\n=== LiCSAR on CEDA {ceda}")
+    root = get(ceda + "/")
+    names = [x.strip("/") for x in links(root)]
+    print(f"    {len(names)} entries: {names[:12]} ... {names[-6:]}")
+    for track in a.tracks:
+        for t in dict.fromkeys([str(track), f"{track:02d}", f"{track:03d}"]):
+            if t not in names:
+                continue
+            r = get(f"{ceda}/{t}/")
+            frames = [f.strip("/") for f in links(r)]
+            print(f"    track folder {t}: {len(frames)} frames: {frames[:25]}")
+            want = [f for f in frames if a.point is None or f in a.wanted]
+            for frame in (want or frames)[: a.frames]:
+                fr = get(f"{ceda}/{t}/{frame}/")
+                print(f"    {frame}: {links(fr)}")
+                ifg = get(f"{ceda}/{t}/{frame}/interferograms/")
+                pairs = sorted(x.strip("/") for x in links(ifg))
+                print(f"    interferograms: {len(pairs)}; first {pairs[:2]}; last {pairs[-4:]}")
+                for pair in pairs[-2:]:
+                    one = get(f"{ceda}/{t}/{frame}/interferograms/{pair}/")
+                    print(f"      files: {links(one)}")
+                    for name in links(one):
+                        if name.endswith(".tif"):
+                            h = S.head(f"{ceda}/{t}/{frame}/interferograms/{pair}/{name}", timeout=60,
+                                       allow_redirects=True)
+                            print(f"      {name}: HTTP {h.status_code}, {h.headers.get('Content-Length')} bytes, "
+                                  f"ranges {h.headers.get('Accept-Ranges')}, final host "
+                                  f"{h.url.split('/')[2]}")
+                ep = get(f"{ceda}/{t}/{frame}/epochs/")
+                eps = sorted(x.strip("/") for x in links(ep))
+                print(f"    epochs: {len(eps)}; last {eps[-3:]}")
+                if eps:
+                    one = get(f"{ceda}/{t}/{frame}/epochs/{eps[-1]}/")
+                    print(f"      files in {eps[-1]}: {links(one)}")
+                md = get(f"{ceda}/{t}/{frame}/metadata/")
+                print(f"    metadata: {links(md)[:20]}")
+
     print("\n=== Other sources (no login)")
     for url in OTHER:
         get(url, n=400)
