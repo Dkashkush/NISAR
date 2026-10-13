@@ -105,8 +105,15 @@ def _references(r) -> str:
         if r.nisar_rate is not None:
             items.append("NISAR data: NASA/ISRO, distributed by the Alaska Satellite Facility (ASF) DAAC.")
         if r.s1_rate is not None:
-            items.append("Contains modified Copernicus Sentinel data; Sentinel-1 interferometric products (ARIA, "
-                         "OPERA (NASA JPL) or HyP3 (ASF)) distributed by the ASF DAAC.")
+            types = {p.product_type for p in r.s1_products}
+            if types - {"LICSAR"}:
+                items.append("Contains modified Copernicus Sentinel data; Sentinel-1 interferometric products (ARIA, "
+                             "OPERA (NASA JPL) or HyP3 (ASF)) distributed by the ASF DAAC.")
+            if "LICSAR" in types:
+                from .licsar import CITATION
+
+                items.append("Contains modified Copernicus Sentinel data processed by COMET's LiCSAR system: "
+                             + e(CITATION))
     if r.gnss is not None and "Nevada" in r.gnss.source:
         items.append("Blewitt, G., Hammond, W. C., &amp; Kreemer, C. (2018). Harnessing the GPS data explosion for "
                      "interdisciplinary science. <i>Eos</i>, 99. GNSS time series from the Nevada Geodetic "

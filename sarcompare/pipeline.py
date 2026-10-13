@@ -91,8 +91,9 @@ class Pipeline:
             return [self.cfg.s1_source]
         lon, lat = self.aoi.center
         north_america = -170 <= lon <= -50 and 14 <= lat <= 75  # OPERA DISP-S1 coverage
-        # last: interferograms already ordered from HyP3 for this area (needs the Earthdata token)
-        return ["ARIA_S1_GUNW"] + (["OPERA_DISP_S1"] if north_america else []) + (["HYP3"] if self._token() else [])
+        # then interferograms already ordered from HyP3 for this area (needs the Earthdata token), then LiCSAR
+        return (["ARIA_S1_GUNW"] + (["OPERA_DISP_S1"] if north_america else [])
+                + (["HYP3"] if self._token() else []) + ["LICSAR"])
 
     def _token(self) -> str | None:
         return self.cfg.earthdata_token or os.environ.get("EARTHDATA_TOKEN") or None
@@ -162,7 +163,7 @@ class Pipeline:
             # Try each source in turn and keep the first that yields usable pairs (not merely any products).
             s1_all, s1, n2 = [], [], []
             names = {"ARIA_S1_GUNW": "ARIA interferograms", "OPERA_DISP_S1": "OPERA DISP-S1",
-                     "HYP3": "interferograms ordered from ASF HyP3"}
+                     "HYP3": "interferograms ordered from ASF HyP3", "LICSAR": "LiCSAR (COMET) interferograms"}
             for source in self._s1_sources():
                 if source == "HYP3":
                     try:
@@ -171,6 +172,16 @@ class Pipeline:
                         notes.append(Note("search", WARN, f"Could not check ASF HyP3 for ordered interferograms "
                                                           f"({type(e).__name__}: {e})."))
                         continue
+                elif source == "LICSAR":
+                    from .licsar import search as licsar_search
+
+                    try:
+                        found, lnotes = licsar_search(self.aoi, cfg.start, cfg.end, cfg.s1_flight_direction)
+                    except Exception as e:  # LiCSAR unreachable: Sentinel-1 is then left out
+                        notes.append(Note("search", WARN, f"Could not check LiCSAR (COMET) for interferograms "
+                                                          f"({type(e).__name__}: {e})."))
+                        continue
+                    notes += lnotes
                 else:
                     found = search_sentinel1(self.aoi, source, cfg.start, cfg.end, cfg.s1_flight_direction)
                 span = max(cfg.max_span_days, 730) if source == "OPERA_DISP_S1" else cfg.max_span_days
@@ -212,6 +223,11 @@ class Pipeline:
         from .remote import is_streamable
 
         todo = [p for p in self.result.nisar_products + self.result.s1_products if p.local_path is None]
+        licsar = [p for p in todo if p.product_type == "LICSAR"]  # always read in place (only the area's window)
+        todo = [p for p in todo if p not in licsar]
+        if licsar:
+            self.emit("download", f"Reading {len(licsar)} LiCSAR interferograms directly from COMET's public "
+                                  "archive, only the part over your area")
         if self.cfg.stream_remote:
             remote = [p for p in todo if is_streamable(p.url) or _public(p)]
             todo = [p for p in todo if p not in remote]
@@ -248,7 +264,7 @@ class Pipeline:
         cfg = self.cfg
         kw = dict(nisar_polarization=cfg.nisar_polarization, nisar_apply_ionosphere=cfg.nisar_apply_ionosphere,
                   nisar_sign=cfg.nisar_sign, s1_sign=cfg.s1_sign)
-        if p.local_path is not None:
+        if p.local_path is not None or p.product_type == "LICSAR":  # LiCSAR: public files, read in place
             return read_product(p, self.aoi, **kw)
         from .hyp3 import anonymous_session
         from .remote import AccessError, UnavailableError, open_remote

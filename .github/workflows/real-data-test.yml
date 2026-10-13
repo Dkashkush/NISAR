@@ -23,7 +23,7 @@ on:
       s1_source:
         description: "Sentinel-1 product type (AUTO = as in the site's config)"
         type: choice
-        options: [AUTO, ARIA_S1_GUNW, OPERA_DISP_S1, HYP3]
+        options: [AUTO, ARIA_S1_GUNW, OPERA_DISP_S1, HYP3, LICSAR]
         default: AUTO
       hyp3:
         description: "ASF HyP3 Sentinel-1 orders: check = plan pairs and show credits/jobs (nothing ordered); order = submit them (uses free HyP3 credits; jobs are public)"
@@ -57,7 +57,7 @@ jobs:
             exit 1
           fi
           case "$SITE" in central_valley|mexico_city|tehran) ;; *) echo "::error::unknown site $SITE"; exit 1;; esac
-          case "$S1_SOURCE" in AUTO|ARIA_S1_GUNW|OPERA_DISP_S1|HYP3) ;; *) echo "::error::unknown s1_source"; exit 1;; esac
+          case "$S1_SOURCE" in AUTO|ARIA_S1_GUNW|OPERA_DISP_S1|HYP3|LICSAR) ;; *) echo "::error::unknown s1_source"; exit 1;; esac
           case "$HYP3" in check|order|skip) ;; *) echo "::error::unknown hyp3 option"; exit 1;; esac
 
       - uses: actions/checkout@v4

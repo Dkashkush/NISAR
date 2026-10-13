@@ -254,7 +254,7 @@ def test_auto_source_uses_hyp3_orders_when_nothing_is_ready_made(monkeypatch, tm
     assert "HYP3" not in P.Pipeline(cfg, on_event=lambda e: None)._s1_sources()  # no token: not checked
     cfg.earthdata_token = "eyJ" + "x" * 400 + ".a.b"
     p = P.Pipeline(cfg, on_event=lambda e: None)
-    assert p._s1_sources()[-1] == "HYP3"
+    assert p._s1_sources()[-2:] == ["HYP3", "LICSAR"]
     nisar_sel, s1_sel = p.search()
     assert len(nisar_sel) == 3 and len(s1_sel) == 3 and all(q.product_type == "HYP3_INSAR" for q in s1_sel)
     assert any("ASF HyP3" in n.text for n in p.result.notes)

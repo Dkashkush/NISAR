@@ -37,13 +37,18 @@ def test_maps_and_summary_render(demo_cfg):
     assert sum("more moving area" in t for _, t in summary) <= 1
 
 
-def test_auto_sentinel1_source_order():
+def test_auto_sentinel1_source_order(monkeypatch):
     from sarcompare.config import Config
 
+    monkeypatch.delenv("EARTHDATA_TOKEN", raising=False)
     na = Pipeline(Config(aoi=[-99.25, 19.25, -98.95, 19.55]), on_event=lambda e: None)
-    assert na._s1_sources() == ["ARIA_S1_GUNW", "OPERA_DISP_S1"]
+    assert na._s1_sources() == ["ARIA_S1_GUNW", "OPERA_DISP_S1", "LICSAR"]
     india = Pipeline(Config(aoi=[77.0, 28.4, 77.2, 28.6]), on_event=lambda e: None)
-    assert india._s1_sources() == ["ARIA_S1_GUNW"]
+    assert india._s1_sources() == ["ARIA_S1_GUNW", "LICSAR"]
+    # with a token, interferograms ordered from HyP3 for the area are checked before LiCSAR
+    india = Pipeline(Config(aoi=[77.0, 28.4, 77.2, 28.6], earthdata_token="eyJ" + "x" * 400 + ".a.b"),
+                     on_event=lambda e: None)
+    assert india._s1_sources() == ["ARIA_S1_GUNW", "HYP3", "LICSAR"]
 
 
 def test_packages_txt_has_only_package_names():

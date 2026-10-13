@@ -398,9 +398,9 @@ def overlap_notes(nisar: list[Product], s1: list[Product], start=None) -> list[N
                                           "GUNW products are published for this area yet." + alone))
     if not s1:
         notes.append(Note("search", WARN, "No Sentinel-1 pairs selected. Ready-made ARIA interferograms cover "
-                                          "selected regions and OPERA DISP-S1 covers North America; elsewhere, "
-                                          "order them free from ASF HyP3 (button below the results, or sarcompare hyp3)."
-                                          + alone))
+                                          "selected regions, OPERA DISP-S1 covers North America and LiCSAR many "
+                                          "tectonic and volcanic regions; elsewhere, order them free from ASF HyP3 "
+                                          "(button below the results, or sarcompare hyp3)." + alone))
     if not nisar or not s1:
         return notes
     n0, n1 = min(p.date1 for p in nisar), max(p.date2 for p in nisar)

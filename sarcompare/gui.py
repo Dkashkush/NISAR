@@ -325,9 +325,12 @@ def advanced_settings():
     with st.expander("⚙️ Advanced settings (most people can skip this)"):
         c1, c2, c3 = st.columns(3)
         s1 = c1.selectbox("Sentinel-1 product", ["Automatic (recommended)", "ARIA interferograms",
-                                                 "OPERA DISP-S1 (North America)", "Ordered from ASF HyP3"],
-                          help="Automatic tries the ready-made products, then interferograms you ordered from "
-                               "ASF HyP3 for this area.")
+                                                 "OPERA DISP-S1 (North America)", "Ordered from ASF HyP3",
+                                                 "LiCSAR (COMET)"],
+                          help="Automatic tries the ready-made products (ARIA, then OPERA in North America), "
+                               "then interferograms you ordered from ASF HyP3 for this area, then LiCSAR "
+                               "(free, ready-made for many tectonic and volcanic regions, e.g. from the "
+                               "Mediterranean to the Himalaya).")
         direction = c1.selectbox("Satellite pass", ["Any", "ASCENDING", "DESCENDING"])
         coh = c2.slider("Data quality threshold (coherence)", 0.1, 0.8, 0.35, 0.05,
                         help="Pixels whose radar signal is less stable than this are left out.")
@@ -342,7 +345,7 @@ def advanced_settings():
         iono = c3.checkbox("Correct NISAR for the ionosphere", True)
         ref = st.text_input("Stable reference point 'longitude, latitude' (blank = automatic)", "")
     s1_code = {"Automatic (recommended)": "AUTO", "ARIA interferograms": "ARIA_S1_GUNW",
-               "Ordered from ASF HyP3": "HYP3"}.get(s1, "OPERA_DISP_S1")
+               "Ordered from ASF HyP3": "HYP3", "LiCSAR (COMET)": "LICSAR"}.get(s1, "OPERA_DISP_S1")
     return dict(s1=s1_code, direction=None if direction == "Any" else direction, coh=coh, max_pairs=max_pairs,
                 res=res, vertical=vertical, iono=iono, ref=ref, both_dirs=both_dirs)
 

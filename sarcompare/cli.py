@@ -116,7 +116,8 @@ def main(argv=None) -> int:
     s = sub.add_parser("search", help="search ASF and show the pairs that would be used")
     s.add_argument("config")
     s.add_argument("--max-pairs", type=int, help="image pairs per satellite (overrides the config)")
-    s.add_argument("--s1-source", choices=["AUTO", "ARIA_S1_GUNW", "OPERA_DISP_S1", "HYP3"], help="Sentinel-1 product type")
+    s.add_argument("--s1-source", choices=["AUTO", "ARIA_S1_GUNW", "OPERA_DISP_S1", "HYP3", "LICSAR"],
+                   help="Sentinel-1 product type")
     s.set_defaults(func=cmd_search)
     r = sub.add_parser("run", help="full workflow: search, download, compare, report")
     r.add_argument("config")
@@ -124,7 +125,8 @@ def main(argv=None) -> int:
     r.add_argument("--no-download", action="store_true", help="only use files already present locally")
     r.add_argument("--max-pairs", type=int, help="image pairs per satellite (overrides the config)")
     r.add_argument("--data-dir", help="folder for downloaded files (overrides the config)")
-    r.add_argument("--s1-source", choices=["AUTO", "ARIA_S1_GUNW", "OPERA_DISP_S1", "HYP3"], help="Sentinel-1 product type")
+    r.add_argument("--s1-source", choices=["AUTO", "ARIA_S1_GUNW", "OPERA_DISP_S1", "HYP3", "LICSAR"],
+                   help="Sentinel-1 product type")
     r.set_defaults(func=cmd_run)
     h = sub.add_parser("hyp3", help="order Sentinel-1 interferograms from ASF HyP3 for the NISAR dates")
     h.add_argument("config")

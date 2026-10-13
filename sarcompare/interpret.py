@@ -89,8 +89,9 @@ def missing_sensor_notes(present: str, missing: str, center: tuple[float, float]
                   "automatically.")
     elif missing == "Sentinel-1":
         add(INFO, "Why: Sentinel-1 images almost all land every 12 days, but ready-made interferograms are only "
-                  "published for some places (ARIA for selected regions, OPERA DISP-S1 for North America). For "
-                  "anywhere else, ASF's free HyP3 service makes them on request from the raw images. Use "
+                  "published for some places (ARIA for selected regions, OPERA DISP-S1 for North America, LiCSAR "
+                  "for many tectonic and volcanic regions; all were checked). For anywhere else, ASF's free HyP3 "
+                  "service makes them on request from the raw images. Use "
                   "\"Order Sentinel-1 from ASF HyP3\" below the results (or sarcompare hyp3 config.yaml --order): "
                   "the app picks Sentinel-1 pairs on the NISAR dates and orders them with your Earthdata login. "
                   "Processing usually takes under an hour; then run the same area again and they are used "
