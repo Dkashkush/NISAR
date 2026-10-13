@@ -86,8 +86,8 @@ The app opens in your web browser but runs **on your own computer**. It is built
 non-specialists:
 
 - **Explore page, a guided 1-2-3 flow:** choose *Try the demo*, *Analyse a real place*, or *Use files I
-  already have*. Pick an **example place** (Mexico City, Jakarta, Joshimath, Delhi NCR, Tehran, Central
-  Valley) or **draw a box on the map**, choose a time period, and optionally turn on extra checks.
+  already have*. **Search any place by name** (the map zooms there), pick an example place, or **draw a box
+  on the map**; choose a time period, and optionally turn on extra checks.
 - **Results start with "In short":** a few plain sentences, such as "The ground is sinking by up to 9.5 cm per
   year … both satellites see it".
 - **An interactive map** follows, with street or satellite basemaps, switchable NISAR / Sentinel-1 /
@@ -96,7 +96,9 @@ non-specialists:
 - **Learn page:** InSAR explained simply, NISAR vs Sentinel-1, how to read the colours, causes of ground
   motion, and a glossary.
 - **Help & FAQ page:** what to do when no data is found, token safety, run times, and data credits.
-- **Automatic Sentinel-1 source:** ARIA, then OPERA DISP-S1 for North America, with guidance if neither exists.
+- **Automatic Sentinel-1 source:** ARIA, then OPERA DISP-S1 for North America, then interferograms you ordered
+  from ASF HyP3, then LiCSAR (COMET). Where none exists the run continues with NISAR alone, and a button orders
+  Sentinel-1 from HyP3 (free).
 
 ## Putting it online as a web page
 
