@@ -107,7 +107,7 @@ it under *Secrets/Environment*. In hosted mode:
 
 | Host | Cost | How |
 |---|---|---|
-| **Hugging Face Spaces** (recommended) | Free CPU tier with generous memory | New Space → SDK **Docker** → push this repo. Add this header at the top of the Space's README: `---` / `sdk: docker` / `app_port: 7860` / `---` |
+| **Hugging Face Spaces** (recommended; automatic deploys from GitHub, see [the guide](docs/deploy-huggingface.md)) | Free CPU tier with generous memory | New Space → SDK **Docker** → push this repo. Add this header at the top of the Space's README: `---` / `sdk: docker` / `app_port: 7860` / `---` |
 | **Streamlit Community Cloud** | Free, smaller memory | share.streamlit.io → New app → this GitHub repo, branch, main file `app.py`. Set `SARCOMPARE_ONLINE = "1"` in Advanced settings → Secrets |
 | **Render / Fly.io / any Docker host** | Free or cheap tiers | Deploy the `Dockerfile`; the app listens on `$PORT` |
 

@@ -1,5 +1,26 @@
 # Put the app online with Hugging Face Spaces (free)
 
+There are two ways. **Option A (automatic, recommended):** GitHub publishes the app for you and updates it
+on every change. **Option B (manual):** drag and drop the files.
+
+## Option A: automatic deployment from GitHub
+
+1. Create a free account at <https://huggingface.co/join> and confirm your email.
+2. Create a token: Hugging Face → your profile picture → **Settings** → **Access Tokens** → **Create new
+   token** → type **Write** → name it e.g. `github-deploy` → **Create** → copy it.
+3. Give it to GitHub: open this repository on GitHub → **Settings** → **Secrets and variables** →
+   **Actions** → **New repository secret** → Name: `HF_TOKEN`, Secret: paste the token → **Add secret**.
+4. Start the first deployment: GitHub → **Actions** tab → **Deploy to Hugging Face Space** → **Run
+   workflow**. After this, every push deploys automatically.
+5. After about 1 minute the workflow summary shows your link,
+   `https://huggingface.co/spaces/<your-hf-username>/opensar-explorer`. The Space then builds for 5–10
+   minutes before the app appears.
+
+The Space is created for you. To use a different name, add a repository **variable** (not a secret) called
+`HF_SPACE` with the value `your-hf-username/your-space-name`.
+
+## Option B: manual upload
+
 1. **Make the upload folder.** Run `python scripts/make_hf_space.py`, or use the provided `hf-space.zip`,
    and unzip it. You get a folder `hf-space/` with 34 files.
 2. **Create an account** at <https://huggingface.co/join> and confirm your email.

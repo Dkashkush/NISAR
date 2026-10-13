@@ -1,0 +1,75 @@
+# Publishes OpenSAR Explorer to a Hugging Face Space on every push to the default branch
+# (or on demand from the Actions tab).
+#
+# One-time setup:
+#   1. Create a free Hugging Face account and a token with "Write" access
+#      (huggingface.co -> Settings -> Access Tokens).
+#   2. In this GitHub repository: Settings -> Secrets and variables -> Actions -> New repository secret,
+#      name it HF_TOKEN and paste the token.
+#   3. Optional: add a repository *variable* HF_SPACE such as "your-hf-username/opensar-explorer".
+#      Without it the Space is <your-hf-username>/opensar-explorer.
+# The Space is created automatically if it does not exist yet.
+
+name: Deploy to Hugging Face Space
+
+on:
+  workflow_dispatch:
+  push:
+
+concurrency:
+  group: hf-space-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_SPACE: ${{ vars.HF_SPACE }}
+    steps:
+      - name: Check for the Hugging Face token
+        id: token
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "::notice::HF_TOKEN secret not set, so nothing was deployed. See the setup notes at the top of .github/workflows/deploy-hf-space.yml."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.token.outputs.present == 'true'
+
+      - uses: actions/setup-python@v5
+        if: steps.token.outputs.present == 'true'
+        with:
+          python-version: "3.11"
+
+      - name: Build the Space folder
+        if: steps.token.outputs.present == 'true'
+        run: python scripts/make_hf_space.py
+
+      - name: Upload to Hugging Face
+        if: steps.token.outputs.present == 'true'
+        run: |
+          pip install --quiet "huggingface_hub>=0.24"
+          python - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+
+          api = HfApi(token=os.environ["HF_TOKEN"])
+          space = os.environ.get("HF_SPACE") or f"{api.whoami()['name']}/opensar-explorer"
+          api.create_repo(space, repo_type="space", space_sdk="docker", exist_ok=True)
+          api.upload_folder(
+              folder_path="dist/hf-space",
+              repo_id=space,
+              repo_type="space",
+              commit_message=f"Deploy {os.environ['GITHUB_SHA'][:7]} from GitHub",
+              # refresh the code folders so files deleted on GitHub disappear from the Space too
+              delete_patterns=["sarcompare/**", "docs/**", "examples/**"],
+          )
+          print(f"Deployed: https://huggingface.co/spaces/{space}")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write(f"Deployed to https://huggingface.co/spaces/{space}\n")
+          PY
