@@ -94,8 +94,8 @@ def main() -> int:
                 for pair in sorted(pairs)[-2:] + sorted(pairs)[-60:-59]:
                     # since Aug 2025 the pair "folder" without a trailing slash is a page linking to the files
                     for b in (base, base + ".future"):
-                        page = get(f"{b}/{track}/{frame}/interferograms/{pair}", n=0)
-                        hrefs = re.findall(r'href="([^"]+)"', page.text) if page is not None and page.ok else []
+                        page = get(f"{b}/{track}/{frame}/interferograms/{pair}", n=2500)
+                        hrefs = re.findall(r"""href=["']([^"']+)["']""", page.text) if page is not None and page.ok else []
                         print(f"      links: {hrefs[:12]}")
                         for href in hrefs:
                             if href.endswith((".geo.unw.tif", ".geo.cc.tif")):
@@ -123,8 +123,8 @@ def main() -> int:
                 print(f"    epochs: {len(eps)}; last {sorted(eps)[-3:]}")
                 for ep_ in sorted(eps)[-1:]:
                     for b in (base, base + ".future"):
-                        page = get(f"{b}/{track}/{frame}/epochs/{ep_}", n=0)
-                        hrefs = re.findall(r'href="([^"]+)"', page.text) if page is not None and page.ok else []
+                        page = get(f"{b}/{track}/{frame}/epochs/{ep_}", n=600)
+                        hrefs = re.findall(r"""href=["']([^"']+)["']""", page.text) if page is not None and page.ok else []
                         print(f"      epoch {ep_} links: {hrefs[:12]}")
                         if hrefs:
                             break
@@ -139,6 +139,8 @@ def main() -> int:
                         print(f"    {sub}: {links(x)[:30]}")
     ceda = "https://dap.ceda.ac.uk/neodc/comet/data/licsar_products"
     print(f"\n=== LiCSAR on CEDA {ceda}")
+    get(ceda + "/MIGRATED.txt", n=3000)
+    get(ceda + "/00README_catalogue_and_licence.txt", n=3000)
     root = get(ceda + "/")
     names = [x.strip("/") for x in links(root)]
     print(f"    {len(names)} entries: {names[:12]} ... {names[-6:]}")
@@ -152,7 +154,7 @@ def main() -> int:
             want = [f for f in frames if a.point is None or f in a.wanted]
             for frame in (want or frames)[: a.frames]:
                 fr = get(f"{ceda}/{t}/{frame}/")
-                print(f"    {frame}: {links(fr)}")
+                print(f"    {frame}: {len(links(fr))} entries, last {sorted(links(fr))[-4:]}")
                 ifg = get(f"{ceda}/{t}/{frame}/interferograms/")
                 pairs = sorted(x.strip("/") for x in links(ifg))
                 print(f"    interferograms: {len(pairs)}; first {pairs[:2]}; last {pairs[-4:]}")
