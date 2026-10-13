@@ -16,7 +16,7 @@ def test_example_places_are_valid_and_small_enough_online():
 
     for name, bbox in EXAMPLE_PLACES.items():
         area = AOI.from_bbox(*bbox).area_km2()
-        assert 50 < area < 2500, (name, area)
+        assert 50 < area < 1000, (name, area)  # fits the suggested Streamlit Cloud limit (1,000 km²)
 
 
 def test_zoom_for():

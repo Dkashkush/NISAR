@@ -22,12 +22,12 @@ DIVERGING = ["#8f1d1d", "#e34948", "#f2a3a2", "#f0efec", "#86b6ef", "#2a78d6", "
 
 # Well-known places where InSAR has documented ground motion; good starting points.
 EXAMPLE_PLACES = {
-    "Mexico City, Mexico: fast city subsidence (groundwater)": (-99.25, 19.25, -98.95, 19.55),
+    "Mexico City, Mexico: fast city subsidence (groundwater)": (-99.20, 19.28, -98.95, 19.52),
     "Jakarta, Indonesia: coastal city subsidence": (106.70, -6.28, 107.00, -6.05),
     "Joshimath, Uttarakhand, India: Himalayan town subsidence": (79.45, 30.48, 79.65, 30.62),
     "Delhi NCR, India: groundwater-related subsidence": (76.95, 28.45, 77.15, 28.65),
-    "Tehran plain, Iran: aquifer subsidence": (51.00, 35.40, 51.50, 35.75),
-    "Central Valley, California, USA: agricultural subsidence": (-119.80, 35.90, -119.40, 36.20),
+    "Tehran plain, Iran: aquifer subsidence": (51.10, 35.45, 51.45, 35.72),
+    "Central Valley, California, USA: agricultural subsidence": (-119.75, 35.90, -119.40, 36.15),
 }
 
 
