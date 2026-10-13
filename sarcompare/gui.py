@@ -183,14 +183,54 @@ def choose_checks(n: int):
         pub_spec = None
         if pub is not None:
             a1, a2 = st.columns(2)
-            units = a1.selectbox("Units", ["mm/yr", "cm/yr", "m/yr"])
+            units = a1.selectbox("Units", ["mm/yr", "cm/yr", "m/yr", "ft/yr", "in/yr",
+                                           "mm (total over a period)", "cm (total over a period)",
+                                           "ft (total over a period)"])
             comp = a2.selectbox("Direction", ["vertical", "LOS"],
                                 help="LOS = along the satellite's line of sight (most InSAR velocity maps).")
+            years = (st.number_input("Years the map covers", 0.1, 50.0, 1.0, 0.1)
+                     if "total" in units else None)
             sign = st.radio("Positive values mean", ["up / toward satellite", "down / away"], horizontal=True)
             inc = st.number_input("Incidence angle (°)", 20.0, 50.0, 39.0) if comp == "LOS" else None
-            pub_spec = {"label": Path(pub.name).stem, "units": units, "component": comp,
-                        "sign": 1 if sign.startswith("up") else -1, "incidence_deg": inc}
-    return gnss, gnss_csv, pub, pub_spec
+            cite = st.text_input("Source / citation", placeholder="e.g. California DWR, TRE ALTAMIRA InSAR, 2025")
+            pub_spec = {"label": Path(pub.name).stem, "units": units.split(" ")[0], "component": comp,
+                        "sign": 1 if sign.startswith("up") else -1, "incidence_deg": inc, "period_years": years,
+                        "citation": cite}
+    lit = published_values_editor()
+    return gnss, gnss_csv, pub, pub_spec, lit
+
+
+def published_values_editor() -> list[dict]:
+    """Editable table for rates reported in papers or official reports."""
+    with st.expander("📚 Compare with rates from published studies (optional)"):
+        st.caption("Type in rates you read in papers or official reports, with the citation. The app compares its "
+                   "own result at the same place. Use the study's period and vertical rates where possible.")
+        import pandas as pd
+
+        empty = pd.DataFrame({"Citation": pd.Series(dtype="str"), "Place": pd.Series(dtype="str"),
+                              "Longitude": pd.Series(dtype="float"), "Latitude": pd.Series(dtype="float"),
+                              "Rate (mm/yr)": pd.Series(dtype="float"), "Direction": pd.Series(dtype="str"),
+                              "Period": pd.Series(dtype="str")})
+        table = st.data_editor(
+            empty, num_rows="dynamic", use_container_width=True, key="lit_table",
+            column_config={
+                "Citation": st.column_config.TextColumn(help="e.g. Smith et al. (2021), Journal, volume"),
+                "Rate (mm/yr)": st.column_config.NumberColumn(min_value=0.0, help="Size of the motion"),
+                "Direction": st.column_config.SelectboxColumn(options=["sinking", "rising"], default="sinking"),
+                "Period": st.column_config.TextColumn(help="Years the study covers, e.g. 2015-2020"),
+            })
+    values = []
+    for _, row in table.iterrows():
+        try:
+            lon, lat, rate = float(row["Longitude"]), float(row["Latitude"]), float(row["Rate (mm/yr)"])
+        except (TypeError, ValueError):
+            continue
+        if any(v != v for v in (lon, lat, rate)):  # NaN: incomplete row
+            continue
+        sign = 1.0 if str(row.get("Direction")) == "rising" else -1.0
+        values.append({"citation": str(row.get("Citation") or "").strip(), "place": str(row.get("Place") or ""),
+                       "lon": lon, "lat": lat, "rate_mm_yr": sign * abs(rate), "period": str(row.get("Period") or "")})
+    return values
 
 
 def token_step(n: int):
@@ -229,7 +269,7 @@ def advanced_settings():
 def build_config(mode, bbox, period, checks, token, adv, local_dirs) -> Config:
     from sarcompare.demo import demo_config
 
-    gnss, gnss_csv, pub, pub_spec = checks
+    gnss, gnss_csv, pub, pub_spec, lit = checks
     if mode == MODE_DEMO:
         cfg = demo_config()
         if not gnss:
@@ -246,6 +286,8 @@ def build_config(mode, bbox, period, checks, token, adv, local_dirs) -> Config:
         cfg.gnss = save_upload(gnss_csv)
     if pub is not None:
         cfg.published_maps = list(cfg.published_maps) + [{"path": save_upload(pub), **pub_spec}]
+    if lit:
+        cfg.published_values = list(cfg.published_values) + lit
     if ONLINE:
         cfg.output_dir = f"outputs/{session_id()}"
     cfg.coherence_threshold, cfg.resolution_m, cfg.max_pairs = adv["coh"], float(adv["res"]), adv["max_pairs"]
@@ -369,6 +411,21 @@ def show_results(res):
             show_notes(vnotes)
         for k in range(len(res.published)):
             st.image(res.figures[f"published_{k}"]["light"], use_container_width=True)
+        if res.literature:
+            st.markdown("**Published studies**")
+            names = {"consistent": "✓ consistent", "differs": "! differs", "no data": "no data",
+                     "outside area": "outside area"}
+            st.dataframe([{"Study": c.citation, "Place": c.place, "Period": c.period,
+                           "Published (mm/yr)": (f"{c.published_min:+.0f} to {c.published_max:+.0f}"
+                                                 if c.published_min is not None and c.published_max is not None
+                                                 else f"{c.published_mm_yr:+.0f}"),
+                           "NISAR (mm/yr)": round(c.insar.get("NISAR", float("nan")), 0),
+                           "NISAR check": names.get(c.verdict.get("NISAR"), ""),
+                           "Sentinel-1 (mm/yr)": round(c.insar.get("Sentinel-1", float("nan")), 0),
+                           "Sentinel-1 check": names.get(c.verdict.get("Sentinel-1"), "")}
+                          for c in res.literature], hide_index=True, use_container_width=True)
+            st.caption("Vertical rates, negative = sinking. Differences often come from different periods: "
+                       "subsidence speeds up in droughts and slows after wet years.")
     with tabs[4]:
         st.image(res.figures["timeline"]["light"], use_container_width=True)
         st.dataframe([p.to_row() for p in res.nisar_products + res.s1_products], hide_index=True,

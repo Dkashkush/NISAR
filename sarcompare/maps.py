@@ -159,6 +159,20 @@ def results_map(result) -> folium.Map:
             folium.CircleMarker([st.lat, st.lon], radius=7, color="#111", weight=2, fill=True, fill_color="#fff",
                                 fill_opacity=1, popup=folium.Popup(popup, max_width=260),
                                 tooltip=f"GNSS {st.site}").add_to(layer)
+    lit = getattr(result, "literature", None) or []
+    if lit:
+        layer = folium.FeatureGroup(name="Published studies", show=True).add_to(m)
+        for chk in lit:
+            pub = (f"{chk.published_min:+.0f} to {chk.published_max:+.0f}" if chk.published_min is not None
+                   and chk.published_max is not None else f"{chk.published_mm_yr:+.0f}")
+            ours = "".join(f"<br>{k}: {v:+.0f} mm/yr ({chk.verdict.get(k, '')})" for k, v in chk.insar.items()
+                           if np.isfinite(v))
+            popup = (f"<b>{html.escape(chk.citation)}</b><br>{html.escape(chk.place)} {html.escape(chk.period)}"
+                     f"<br>Published: {pub} mm/yr{ours}")
+            ok = "consistent" in chk.verdict.values() and "differs" not in chk.verdict.values()
+            folium.Marker([chk.lat, chk.lon], popup=folium.Popup(popup, max_width=280),
+                          tooltip=f"Published: {html.escape(chk.citation)}",
+                          icon=folium.Icon(color="green" if ok else "orange", icon="book")).add_to(layer)
     legend = LinearColormap(DIVERGING, vmin=-lim, vmax=lim)
     legend.caption = "Ground motion, mm/yr (red = sinking, blue = rising)"
     legend.add_to(m)

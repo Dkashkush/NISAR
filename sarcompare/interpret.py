@@ -249,6 +249,12 @@ def plain_summary(result) -> list[tuple[str, str]]:
         s = g.stats[a.sensor]
         out.append((GOOD if s.rmse_mm_yr < 15 else WARN,
                     f"Checked against {s.n} GNSS ground stations: NISAR is within about {s.rmse_mm_yr:.0f} mm per year."))
+    lit = getattr(result, "literature", None) or []
+    tested = [(c, s) for c in lit for s in (a.sensor, b.sensor) if c.verdict.get(s) in ("consistent", "differs")]
+    if tested:
+        agree = sum(1 for c, s in tested if c.verdict[s] == "consistent")
+        out.append((GOOD if agree / len(tested) >= 0.75 else WARN,
+                    f"Compared with published studies: {agree} of {len(tested)} comparisons agree."))
     if math.isfinite(a.noise_rate):
         out.append((INFO, f"Movements smaller than about {2 * max(a.noise_rate, b.noise_rate) * 1000:.0f} mm per "
                           "year cannot be told apart from noise with this amount of data."))
@@ -256,3 +262,38 @@ def plain_summary(result) -> list[tuple[str, str]]:
         out.insert(0, (WARN, "The two satellites show opposite motion, which usually means a data-format setting "
                              "is wrong. See the Details tab."))
     return out
+
+
+def literature_notes(checks, rates: list[RateMap]) -> list[Note]:
+    """One note per published value, plus an overall tally."""
+    notes: list[Note] = []
+    add = lambda lvl, text: notes.append(Note("validate", lvl, text))  # noqa: E731
+    if not checks:
+        return notes
+    sensors = [rm.sensor for rm in rates]
+    tested = [(c, s) for c in checks for s in sensors if c.verdict.get(s) in ("consistent", "differs")]
+    agree = sum(1 for c, s in tested if c.verdict[s] == "consistent")
+    if tested:
+        lvl = GOOD if agree / len(tested) >= 0.75 else INFO if agree / len(tested) >= 0.5 else WARN
+        add(lvl, f"Published studies: {agree} of {len(tested)} comparisons agree "
+                 f"({len(checks)} published value(s) × {len(sensors)} satellites, where data exist).")
+    for c in checks:
+        pub = (f"{c.published_min:+.0f} to {c.published_max:+.0f}" if c.published_min is not None
+               and c.published_max is not None else f"{c.published_mm_yr:+.0f}") + " mm/yr"
+        where = f" at {c.place}" if c.place else f" at {c.lat:.4f}°N, {c.lon:.4f}°E"
+        when = f" for {c.period}" if c.period else ""
+        ours = ", ".join(f"{s} {c.insar[s]:+.0f}" for s in sensors if math.isfinite(c.insar.get(s, float('nan'))))
+        verdicts = {c.verdict.get(s) for s in sensors}
+        text = f"{c.citation} report {pub}{where}{when}; this run gives {ours or 'no data there'} mm/yr."
+        if verdicts == {"consistent"} or ("consistent" in verdicts and "differs" not in verdicts):
+            add(GOOD, text + " Consistent.")
+        elif "differs" in verdicts:
+            add(WARN, text + " Different. Check first whether the periods match: subsidence rates change "
+                             "with droughts, pumping and recharge. Then check that both are vertical rather than "
+                             "line-of-sight, and that the reference (stable point) is comparable.")
+        else:
+            add(INFO, text + " Not compared: " + ", ".join(sorted(v for v in verdicts if v)) + ".")
+    if not any(any(c.absolute.values()) for c in checks):
+        add(INFO, "These rates are relative to the area median. Most published rates are absolute; turn on the "
+                  "GNSS check so the app can tie its rates to GNSS and compare like with like.")
+    return notes

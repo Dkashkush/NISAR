@@ -273,6 +273,26 @@ class PublishedValidation:
     period: str = ""
 
 
+_LENGTH_MM = {"mm": 1.0, "cm": 10.0, "m": 1000.0, "ft": 304.8, "in": 25.4}
+
+
+def _units_to_mm_per_yr(spec: dict) -> float:
+    """Scale factor to mm/yr. Accepts rates (mm/yr, cm/yr, m/yr, ft/yr, in/yr) or total displacement over a
+    period (mm, cm, m, ft, in) together with ``period_years`` (e.g. a cumulative-subsidence map for 2015-2024)."""
+    units = str(spec.get("units", "mm/yr")).lower().replace(" ", "").replace("/y", "/yr").replace("/yrr", "/yr")
+    length, _, per = units.partition("/")
+    if length not in _LENGTH_MM or per not in ("", "yr"):
+        raise ValueError(f"Unknown units {spec.get('units')!r}; use mm/yr, cm/yr, m/yr, ft/yr, in/yr, or a length "
+                         "(mm, cm, m, ft, in) with period_years for total displacement maps")
+    if per == "yr":
+        return _LENGTH_MM[length]
+    years = spec.get("period_years")
+    if not years or float(years) <= 0:
+        raise ValueError(f"Units {spec.get('units')!r} are a total displacement; also give period_years "
+                         "(the number of years the map covers) to turn it into a rate")
+    return _LENGTH_MM[length] / float(years)
+
+
 def load_published_map(spec: dict, template: xr.DataArray) -> xr.DataArray:
     """Read a published velocity raster and convert it to vertical mm/yr, positive = up."""
     da = rioxarray.open_rasterio(spec["path"], masked=True)
@@ -281,10 +301,7 @@ def load_published_map(spec: dict, template: xr.DataArray) -> xr.DataArray:
     if da.rio.crs is None:
         da = da.rio.write_crs("EPSG:4326")
     da = da.astype("float32").rio.write_nodata(np.nan, encoded=False)
-    units = str(spec.get("units", "mm/yr")).lower().replace(" ", "")
-    scale = {"mm/yr": 1.0, "mm/y": 1.0, "m/yr": 1000.0, "m/y": 1000.0, "cm/yr": 10.0, "cm/y": 10.0}.get(units)
-    if scale is None:
-        raise ValueError(f"Unknown units {spec.get('units')!r}; use mm/yr, cm/yr or m/yr")
+    scale = _units_to_mm_per_yr(spec)
     out = regrid(da, template) * scale * float(spec.get("sign", 1.0))
     if str(spec.get("component", "vertical")).upper() == "LOS":
         inc = spec.get("incidence_deg")
@@ -327,3 +344,97 @@ def validate_published(spec: dict, rates: list[RateMap], ref: Reference, inside:
             stats[rm.sensor] = MapStats(int(ok.sum()), *(float("nan"),) * 4, float(ok.sum() / max(own.sum(), 1)))
     return PublishedValidation(spec.get("label") or Path(spec["path"]).stem, str(spec["path"]), mode, pub,
                                stats, diffs, str(spec.get("period", "")))
+
+
+# ---------------------------------------------------------------------------
+# Published values from papers / reports
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class LiteratureCheck:
+    """One rate reported in a published study, compared with this run's rates at the same place."""
+
+    citation: str
+    place: str
+    lon: float
+    lat: float
+    radius_km: float
+    published_mm_yr: float  # vertical, negative = sinking
+    published_min: float | None
+    published_max: float | None
+    period: str
+    insar: dict = field(default_factory=dict)  # sensor -> median rate (mm/yr) within radius
+    absolute: dict = field(default_factory=dict)  # sensor -> True if tied to GNSS (absolute), else relative
+    verdict: dict = field(default_factory=dict)  # sensor -> consistent | differs | no data | outside area
+
+
+def _rate_in_radius(rm: RateMap, lon: float, lat: float, radius_km: float) -> tuple[float, str]:
+    x, y = Transformer.from_crs("EPSG:4326", rm.rate.rio.crs, always_xy=True).transform(lon, lat)
+    xs, ys = rm.rate.x.values, rm.rate.y.values
+    if not (xs.min() <= x <= xs.max() and ys.min() <= y <= ys.max()):
+        return float("nan"), "outside area"
+    res = abs(xs[1] - xs[0]) if xs.size > 1 else 1.0
+    r = max(radius_km * 1000.0, res)
+    cols = np.where(np.abs(xs - x) <= r)[0]
+    rows = np.where(np.abs(ys - y) <= r)[0]
+    X, Y = np.meshgrid(xs[cols], ys[rows])
+    vals = rm.rate.values[np.ix_(rows, cols)] * 1000
+    vals = vals[(np.hypot(X - x, Y - y) <= r) & np.isfinite(vals)]
+    if vals.size == 0:
+        return float("nan"), "no data"
+    return float(np.median(vals)), ""
+
+
+def parse_published_value(v: dict) -> dict:
+    """Normalise one published value: rate as vertical mm/yr, negative = sinking."""
+    rate = float(v["rate_mm_yr"])
+    lo = v.get("rate_min_mm_yr")
+    hi = v.get("rate_max_mm_yr")
+    if str(v.get("component", "vertical")).upper() == "LOS":
+        inc = v.get("incidence_deg")
+        if inc is None:
+            raise ValueError(f"Published value from {v.get('citation')!r} is LOS: give incidence_deg")
+        f = 1.0 / np.cos(np.radians(float(inc)))
+        rate, lo, hi = rate * f, (lo * f if lo is not None else None), (hi * f if hi is not None else None)
+    if lo is not None and hi is not None and lo > hi:
+        lo, hi = hi, lo
+    return {"citation": str(v.get("citation", "")).strip() or "(no citation given)",
+            "place": str(v.get("place", "")).strip(), "lon": _std_lon(float(v["lon"])), "lat": float(v["lat"]),
+            "radius_km": float(v.get("radius_km") or 1.0), "rate": rate,
+            "lo": float(lo) if lo is not None else None, "hi": float(hi) if hi is not None else None,
+            "period": str(v.get("period", "")).strip()}
+
+
+def validate_literature(values: list[dict], rates: list[RateMap], gnss: GnssValidation | None = None
+                        ) -> list[LiteratureCheck]:
+    """Compare rates reported in published studies with this run, place by place.
+
+    InSAR rates here are relative (zero = area median). When the GNSS check produced an offset for a sensor,
+    it is removed so the comparison is absolute, like most published rates. A value counts as consistent when
+    it lies within the published range, or within max(2 x rate noise, 25 % of the published rate, 5 mm/yr).
+    """
+    out = []
+    for raw in values:
+        v = parse_published_value(raw)
+        chk = LiteratureCheck(v["citation"], v["place"], v["lon"], v["lat"], v["radius_km"], v["rate"],
+                              v["lo"], v["hi"], v["period"])
+        for rm in rates:
+            val, problem = _rate_in_radius(rm, v["lon"], v["lat"], v["radius_km"])
+            stats = gnss.stats.get(rm.sensor) if gnss is not None else None
+            absolute = bool(stats is not None and stats.n >= 2 and math.isfinite(stats.offset_mm_yr))
+            if absolute and math.isfinite(val):
+                val -= stats.offset_mm_yr
+            chk.insar[rm.sensor] = val
+            chk.absolute[rm.sensor] = absolute
+            if problem:
+                chk.verdict[rm.sensor] = problem
+                continue
+            noise = rm.noise_rate * 1000 if math.isfinite(rm.noise_rate) else 10.0
+            if v["lo"] is not None and v["hi"] is not None:
+                ok = v["lo"] - 2 * noise <= val <= v["hi"] + 2 * noise
+            else:
+                ok = abs(val - v["rate"]) <= max(2 * noise, 0.25 * abs(v["rate"]), 5.0)
+            chk.verdict[rm.sensor] = "consistent" if ok else "differs"
+        out.append(chk)
+    return out

@@ -189,6 +189,9 @@ data on GitHub's servers. No local install is needed.
 
 ## Validating against published data
 
+> **Step-by-step guide, with sources for each region and how to use rates from papers:**
+> [docs/validation-guide.md](docs/validation-guide.md)
+
 InSAR should always be checked against something independent. The app supports three kinds of reference data.
 
 **GNSS (automatic, worldwide).** With `gnss: NGL`, the app:
@@ -204,6 +207,8 @@ the reference area itself is moving, and the app tells you so.
 
 **Published GNSS tables.** Many papers list station velocities. Put them in a CSV
 (`site,lon,lat,up_mm_yr,up_sigma_mm_yr`) and set `gnss: that.csv`.
+
+**Rates from published papers.** Type them into the app's *Compare with rates from published studies* table, or list them under `published_values` in a config file. Each one is compared at the same place, and the citation goes into the report's References.
 
 **Published velocity maps.** Point `published_maps` at, for example:
 

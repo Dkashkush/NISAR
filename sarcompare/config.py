@@ -45,7 +45,10 @@ class Config:
     gnss: str | None = None  # None = off; "NGL" = Nevada Geodetic Lab (auto-download); or path to a CSV table
     gnss_dir: str = "data/gnss"  # cache for NGL files
     gnss_max_stations: int = 30
-    published_maps: list = field(default_factory=list)  # [{path, label, units, component, sign, incidence_deg}]
+    published_maps: list = field(default_factory=list)  # [{path, label, units, component, sign, incidence_deg,
+    #                                                      period_years, citation}]
+    published_values: list = field(default_factory=list)  # rates from papers: [{citation, place, lon, lat,
+    #                    rate_mm_yr (vertical, negative = sinking), rate_min_mm_yr, rate_max_mm_yr, radius_km, period}]
 
     earthdata_token: str | None = field(default=None, repr=False)  # per-run credential; never written to disk
 

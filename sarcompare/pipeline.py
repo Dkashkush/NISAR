@@ -17,7 +17,7 @@ from . import plots
 from .compare import Comparison, compare
 from .config import Config
 from .download import download_products
-from .interpret import comparison_notes, gnss_notes, pair_notes, published_notes, stack_notes
+from .interpret import comparison_notes, gnss_notes, literature_notes, pair_notes, published_notes, stack_notes
 from .notes import INFO, WARN, Note
 from .processing import (RateMap, Reference, aoi_mask, apply_reference, choose_reference, common_grid,
                          reference_notes, stack_rates, to_vertical)
@@ -49,6 +49,7 @@ class RunResult:
     outputs: dict[str, str] = field(default_factory=dict)
     gnss: object | None = None  # validate.GnssValidation
     published: list = field(default_factory=list)  # [validate.PublishedValidation]
+    literature: list = field(default_factory=list)  # [validate.LiteratureCheck]
 
 
 def _print_event(ev: Event) -> None:
@@ -205,6 +206,13 @@ class Pipeline:
             except Exception as e:
                 notes = [Note("validate", WARN, f"Could not use published map {spec.get('path')}: {e}")]
             self.emit("validate", f"Compared with published map {spec.get('label') or spec.get('path')}", notes)
+        if cfg.published_values:
+            try:
+                r.literature = V.validate_literature(cfg.published_values, rates, r.gnss)
+                notes = literature_notes(r.literature, rates)
+            except Exception as e:
+                notes = [Note("validate", WARN, f"Could not compare with published values: {type(e).__name__}: {e}")]
+            self.emit("validate", f"Compared with {len(cfg.published_values)} published value(s) from studies", notes)
 
     def make_figures(self) -> None:
         r = self.result
@@ -271,7 +279,7 @@ class Pipeline:
             self.download()
         self.load_and_stack()
         self.reference_and_compare()
-        if self.cfg.gnss or self.cfg.published_maps:
+        if self.cfg.gnss or self.cfg.published_maps or self.cfg.published_values:
             self.validate()
         self.make_figures()
         self.write_outputs()
@@ -302,4 +310,5 @@ def _validation_summary(r: RunResult) -> dict:
                        "stations": [asdict(s) for s in r.gnss.stations], "skipped": r.gnss.skipped}
     out["published_maps"] = [{"label": p.label, "path": p.path, "reference_mode": p.reference_mode,
                               "stats": {k: asdict(v) for k, v in p.stats.items()}} for p in r.published]
+    out["published_values"] = [asdict(c) for c in r.literature]
     return out

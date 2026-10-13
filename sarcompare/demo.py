@@ -265,4 +265,19 @@ def demo_config(root: str | Path = "data/demo", output_dir: str = "outputs") -> 
                   published_maps=[{"path": str(Path(root) / "published_velocity_demo.tif"),
                                    "label": "Synthetic published map", "units": "mm/yr", "component": "vertical",
                                    "period": "2019–2024 (synthetic)"}],
+                  published_values=_demo_published_values(),
                   extra={"synthetic": True})
+
+
+def _demo_published_values() -> list[dict]:
+    """Stand-ins for rates read from published papers (synthetic, clearly labelled)."""
+    scene = Scene(AOI.from_bbox(*DEMO_BBOX, name="demo"))
+    to_ll = Transformer.from_crs(scene.crs, "EPSG:4326", always_xy=True)
+    city = to_ll.transform(*scene.city)
+    slide = to_ll.transform(*scene.slide)
+    return [
+        {"citation": "Synthetic Study A (2024), demo only", "place": "city centre", "lon": city[0], "lat": city[1],
+         "rate_mm_yr": -95, "rate_min_mm_yr": -110, "rate_max_mm_yr": -80, "radius_km": 1.0, "period": "2019-2023"},
+        {"citation": "Synthetic Study B (2023), demo only", "place": "forest landslide", "lon": slide[0],
+         "lat": slide[1], "rate_mm_yr": -55, "radius_km": 0.5, "period": "2018-2022"},
+    ]
