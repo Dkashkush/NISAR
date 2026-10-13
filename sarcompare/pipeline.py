@@ -401,7 +401,7 @@ def _dedupe(notes: list[Note]) -> list[Note]:
 def _rate_summary(rm: RateMap) -> dict:
     return {"component": rm.component, "n_pairs": rm.n_pairs, "total_days": rm.total_days,
             "date_start": str(rm.date_start), "date_end": str(rm.date_end), "incidence_deg": rm.incidence_deg,
-            "wavelength_m": rm.wavelength, "noise_rate_mm_yr": rm.noise_rate * 1000}
+            "wavelength_m": rm.wavelength, "noise_rate_mm_yr": rm.noise_rate * 1000, "pairs_qc": rm.pair_qc}
 
 
 def _validation_summary(r: RunResult) -> dict:

@@ -36,6 +36,7 @@ class RateMap:
     component: str = "LOS"
     noise_rate: float = float("nan")  # estimated 1-sigma rate noise (m/yr) from pair-to-pair scatter
     notes: list[Note] = field(default_factory=list)
+    pair_qc: list[dict] = field(default_factory=list)  # per pair: tilt and spread (see pair_tilt)
 
 
 def common_grid(aoi: AOI, resolution: float) -> xr.DataArray:
@@ -59,6 +60,21 @@ def aoi_mask(aoi: AOI, template: xr.DataArray) -> np.ndarray:
 def regrid(da: xr.DataArray, template: xr.DataArray) -> xr.DataArray:
     out = da.rio.reproject_match(template, resampling=Resampling.average)
     return out.where(np.isfinite(out))
+
+
+def pair_tilt(los: np.ndarray, x: np.ndarray, y: np.ndarray) -> dict:
+    """Best-fitting plane of one pair (metres, LOS): its change across the grid east-west and north-south, and
+    the spread left after removing it, all in mm. Real ground motion builds up pair after pair; a tilt that shows
+    up in only one or two pairs is usually ionosphere or troposphere."""
+    ok = np.isfinite(los)
+    if ok.sum() < 10:
+        return {"tilt_ew_mm": float("nan"), "tilt_ns_mm": float("nan"), "spread_mm": float("nan")}
+    X, Y = np.meshgrid((x - x.mean()) / 1000, (y - y.mean()) / 1000)
+    A = np.column_stack([np.ones(ok.sum()), X[ok], Y[ok]])
+    coef, *_ = np.linalg.lstsq(A, los[ok], rcond=None)
+    resid = los[ok] - A @ coef
+    return {"tilt_ew_mm": float(coef[1] * (np.ptp(X)) * 1000), "tilt_ns_mm": float(coef[2] * (np.ptp(Y)) * 1000),
+            "spread_mm": float(np.std(resid) * 1000)}
 
 
 def independent_pieces(ifgs) -> int:
@@ -91,6 +107,14 @@ def stack_rates(ifgs: list[Interferogram], template: xr.DataArray, coherence_thr
         if sel.any():
             los[k] -= np.nanmedian(los[k][sel])
     los = np.where(valid, los, np.nan)
+    xs, ys = template.x.values, template.y.values
+    pair_qc = []
+    for k, i in enumerate(ifgs):
+        q = {"date1": str(i.date1), "date2": str(i.date2), "valid": float(valid[k].mean()), **pair_tilt(los[k], xs, ys)}
+        it = (i.extras or {}).get("iono_tilt")
+        if it:  # tilt of the ionosphere screen that was removed, as line-of-sight displacement (mm)
+            q.update(iono_tilt_ew_mm=it["tilt_ew_mm"], iono_tilt_ns_mm=it["tilt_ns_mm"])
+        pair_qc.append(q)
 
     n_valid = valid.sum(axis=0)
     need = max(1, int(np.ceil(min_fraction * len(ifgs))))
@@ -127,7 +151,7 @@ def stack_rates(ifgs: list[Interferogram], template: xr.DataArray, coherence_thr
         n_valid=template.copy(data=n_valid.astype("float32")), n_pairs=len(ifgs),
         total_days=int(sum(i.span_days for i in ifgs)), date_start=d0, date_end=d1,
         incidence_deg=float(np.mean([i.incidence_deg for i in ifgs])),
-        wavelength=float(ifgs[0].wavelength), noise_rate=noise, notes=notes,
+        wavelength=float(ifgs[0].wavelength), noise_rate=noise, notes=notes, pair_qc=pair_qc,
     )
 
 

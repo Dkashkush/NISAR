@@ -167,12 +167,15 @@ def read_nisar_gunw(path, aoi: AOI, polarization: str | None = None, apply_ionos
                 cc = np.where(cc == np.asarray(cc_fill).ravel()[0], 0, cc)
             phase = np.where(cc == 0, np.nan, phase)
         iono_path = f"{pol_group}/ionospherePhaseScreen"
-        iono_std_mm = spread_before = spread_after = None
+        iono_std_mm = spread_before = spread_after = iono_tilt = None
         to_mm = WAVELENGTH_NISAR_L / (4 * np.pi) * 1000
         if iono_path in h5:
             iono = apply_fill(h5[iono_path][rows, cols], h5[iono_path].attrs.get("_FillValue"))
             if iono.shape == phase.shape:
                 iono_std_mm = float(np.nanstd(iono) * to_mm)
+                from ..processing import pair_tilt
+
+                iono_tilt = pair_tilt(np.where(np.isfinite(phase), iono, np.nan) * to_mm / 1000, x[cols], y[rows])
                 if apply_ionosphere:
                     spread_before = float(np.nanstd(phase) * to_mm)
                     phase = phase - iono
@@ -201,6 +204,8 @@ def read_nisar_gunw(path, aoi: AOI, polarization: str | None = None, apply_ionos
         notes.append(Note("load", WARN, f"NISAR {date1}→{date2}: no incidence-angle layer; assuming {inc}°."))
     s = NISAR_PHASE_SIGN if sign is None else sign
     los = s * phase * wavelength / (4 * np.pi)
+    if iono_tilt:  # express the removed ionosphere as line-of-sight displacement, like ``los``
+        iono_tilt = {k: (s * v if k.startswith("tilt") else v) for k, v in iono_tilt.items()}
     if iono_std_mm is not None:
         verb = "removed" if apply_ionosphere else "provided (not applied)"
         lvl = WARN if iono_std_mm > 10 and not apply_ionosphere else INFO
@@ -221,5 +226,5 @@ def read_nisar_gunw(path, aoi: AOI, polarization: str | None = None, apply_ionos
         los=make_da(los, x[cols], y[rows], f"EPSG:{epsg}", "los"),
         coherence=make_da(coh, x[cols], y[rows], f"EPSG:{epsg}", "coherence"),
         wavelength=wavelength, incidence_deg=inc, flight_direction=direction, notes=notes,
-        extras={"polarization": pol, "ionosphere_std_mm": iono_std_mm, "pieces": pieces},
+        extras={"polarization": pol, "ionosphere_std_mm": iono_std_mm, "pieces": pieces, "iono_tilt": iono_tilt},
     )

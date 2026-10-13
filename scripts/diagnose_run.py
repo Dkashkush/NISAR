@@ -45,6 +45,26 @@ def block_grid(path: Path, n: int = 6) -> None:
         print(f"  lat {lat:7.3f} " + " ".join(cells))
 
 
+def nearby_gnss(m: dict, holdings: Path, buffer_deg: float = 0.4) -> None:
+    """NGL stations in and around the area, to judge whether a larger area would give a better GNSS check."""
+    aoi = m.get("config", {}).get("aoi")
+    if not holdings.exists() or not isinstance(aoi, list) or len(aoi) != 4:
+        return
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from sarcompare.validate import read_ngl_site_list
+
+    w, s, e, n = aoi
+    t0 = min(x for x in (m.get("nisar", {}).get("date_start"), m.get("sentinel1", {}).get("date_start")) if x)
+    rows = [x for x in read_ngl_site_list(holdings)
+            if w - buffer_deg <= x["lon"] <= e + buffer_deg and s - buffer_deg <= x["lat"] <= n + buffer_deg]
+    print(f"\nNGL stations within {buffer_deg} deg of the area ({len(rows)}); * = inside, + = has data after {t0}:")
+    for x in sorted(rows, key=lambda x: (x["lat"], x["lon"])):
+        inside = w <= x["lon"] <= e and s <= x["lat"] <= n
+        recent = str(x["end"]) >= t0
+        print(f"  {x['site']:<5} {x['lon']:9.4f} {x['lat']:8.4f}  {x['start']} -> {x['end']}  "
+              f"{'*' if inside else ' '}{'+' if recent else ' '}")
+
+
 def main(run_dir: str) -> int:
     run = Path(run_dir)
     mpath = run / "metrics.json"
@@ -63,7 +83,14 @@ def main(run_dir: str) -> int:
               f"noise {_f(s.get('noise_rate_mm_yr'))} mm/yr, incidence {s.get('incidence_deg', 0):.1f} deg")
     print("\nPairs:")
     for p in m.get("pairs", []):
-        print("  " + "  ".join(str(p.get(k, "")) for k in ("sensor", "date1", "date2", "flight_direction", "track")))
+        print("  " + "  ".join(str(p.get(k, "")) for k in ("sensor", "date1", "date2", "direction", "track", "name")))
+    print("\nPer-pair quality (line of sight, mm): tilt across the area east-west / north-south, spread after the tilt")
+    for key in ("nisar", "sentinel1"):
+        for q in m.get(key, {}).get("pairs_qc", []):
+            print(f"  {key:<9} {q['date1']} -> {q['date2']}  valid {q['valid']:4.0%}  tilt E-W {_f(q['tilt_ew_mm']):>5}"
+                  f"  N-S {_f(q['tilt_ns_mm']):>5}  spread {q['spread_mm']:5.1f}"
+                  + (f"   (ionosphere removed: tilt E-W {_f(q['iono_tilt_ew_mm']):>5} N-S {_f(q['iono_tilt_ns_mm']):>5})"
+                     if "iono_tilt_ew_mm" in q else ""))
     g = (m.get("validation") or {}).get("gnss")
     if g:
         print(f"\nGNSS ({g['source']}): absolute vertical rate vs InSAR at the station (mm/yr)")
@@ -81,6 +108,7 @@ def main(run_dir: str) -> int:
             print(f"  {k}: n={s['n']} offset={_f(s['offset_mm_yr'], 1)} rmse={_f(s['rmse_mm_yr'], 1)}")
         for sk in g.get("skipped", []):
             print(f"  skipped: {sk}")
+    nearby_gnss(m, Path(m.get("config", {}).get("gnss_dir") or "data/gnss") / "DataHoldings.txt")
     for tif in sorted(run.glob("*_rate_m_per_yr.tif")) + sorted(run.glob("nisar_minus_s1_m_per_yr.tif")):
         block_grid(tif)
     return 0
