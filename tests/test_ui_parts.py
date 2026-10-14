@@ -189,3 +189,40 @@ def test_order_sentinel1_from_the_results_page(demo_cfg, tmp_path, monkeypatch):
     next(b for b in at.button if b.label == "Order 2 Sentinel-1 interferograms").click().run()
     assert not at.exception, at.exception
     assert len(orders) == 1 and any("ordered" in s.value for s in at.success)
+
+
+def test_app_picks_up_new_code_without_a_reboot():
+    """On Streamlit Community Cloud new commits land in the app's folder while the server keeps old modules."""
+    import subprocess
+    import sys
+
+    root = Path(__file__).parents[1]
+    script = f"""
+import os, sys
+sys.path.insert(0, {str(root)!r})
+import app
+app.fresh_code()
+import sarcompare.notes as first
+app.fresh_code()
+import sarcompare.notes as same
+assert same is first, "reloaded although nothing changed"
+f = app.PACKAGE / "notes.py"
+st = os.stat(f)
+os.utime(f, (st.st_atime, st.st_mtime + 5))  # as if a newer version had been pulled
+try:
+    app.fresh_code()
+    import sarcompare.notes as second
+    assert second is not first, "old module kept after the code changed"
+finally:
+    os.utime(f, (st.st_atime, st.st_mtime))
+print("ok")
+"""
+    out = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=120)
+    assert out.stdout.strip().endswith("ok"), out.stderr
+
+
+def test_footer_shows_the_running_version():
+    import sarcompare
+
+    v = sarcompare.code_version()
+    assert v.startswith(sarcompare.__version__)

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from sarcompare import __author__, __copyright__
+from sarcompare import __author__, __copyright__, code_version
 from sarcompare.config import Config
 from sarcompare.notes import GOOD, WARN
 from sarcompare.pipeline import Event, Pipeline
@@ -111,7 +111,8 @@ def footer():
         "Data: NISAR (NASA/ISRO) and Copernicus Sentinel-1 (ESA) via the "
         '<a href="https://asf.alaska.edu" target="_blank">Alaska Satellite Facility</a>; GNSS from the '
         '<a href="https://geodesy.unr.edu" target="_blank">Nevada Geodetic Laboratory</a>; base maps © '
-        "OpenStreetMap contributors and Esri. Results are research estimates: verify before making decisions.</div>",
+        "OpenStreetMap contributors and Esri. Results are research estimates: verify before making decisions. "
+        f"Version {code_version()}.</div>",
         unsafe_allow_html=True)
 
 
