@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Validation against independent, published data.
 
 Two kinds of reference are supported:

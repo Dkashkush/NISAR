@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Interpretation notes: short, plain-language findings attached to each pipeline stage."""
 
 from __future__ import annotations

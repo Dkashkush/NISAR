@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Rule-based interpretation: turn numbers into plain-language findings with the physics behind them.
 
 Every rule here is deliberately simple and explainable. The notes are a starting point for your

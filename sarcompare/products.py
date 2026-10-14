@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Common description of a downloadable/loaded InSAR product, independent of sensor."""
 
 from __future__ import annotations

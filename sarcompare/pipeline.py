@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """End-to-end workflow: search → download → load → stack → reference → compare → report.
 
 Each stage reports progress and interpretation notes through ``on_event`` so a CLI or web UI can
@@ -15,7 +16,7 @@ from typing import Callable
 
 import numpy as np
 
-from . import plots
+from . import plots, provenance
 from .compare import Comparison, compare
 from .config import Config
 from .download import download_products
@@ -545,13 +546,15 @@ class Pipeline:
         layers += [(f"{short[k]}_east_west_rate_m_per_yr", v.rate) for k, v in r.east.items() if v is not None]
         for key, da in layers:
             path = out / f"{key}.tif"
-            da.rio.to_raster(path, driver="GTiff", compress="deflate")
+            da.rio.to_raster(path, driver="GTiff", compress="deflate",
+                             tags={k.upper(): v for k, v in provenance().items()})
             r.outputs[key] = str(path)
         fig_dir = out / "figures"
         fig_dir.mkdir(exist_ok=True)
         for name, themes in r.figures.items():
             (fig_dir / f"{name}.png").write_bytes(themes["light"])
         metrics = {
+            "software": provenance(),
             "config": self.cfg.to_dict(),
             "nisar": _rate_summary(r.nisar_rate), "sentinel1": _rate_summary(r.s1_rate),  # None = no data
             "east_west": {k: _rate_summary(v) for k, v in r.east.items() if v is not None},

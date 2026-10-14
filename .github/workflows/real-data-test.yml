@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 # Runs OpenSAR Explorer on REAL NISAR + Sentinel-1 data on GitHub's servers and keeps the results.
 #
 # One-time setup: create a free NASA Earthdata token (urs.earthdata.nasa.gov -> Generate Token), then in this

@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """LiCSAR (COMET) Sentinel-1 interferograms: discovery against a fake server, reading, and an end-to-end run."""
 
 from datetime import date, timedelta

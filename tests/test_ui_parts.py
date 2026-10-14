@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 from pathlib import Path
 """Non-browser tests for the parts behind the web interface."""
 
@@ -226,3 +227,32 @@ def test_footer_shows_the_running_version():
 
     v = sarcompare.code_version()
     assert v.startswith(sarcompare.__version__)
+
+
+NOTICE = "Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE."
+
+
+def test_every_source_file_carries_the_copyright_notice():
+    import subprocess
+
+    root = Path(__file__).parents[1]
+    files = subprocess.run(["git", "ls-files", "*.py"], cwd=root, capture_output=True, text=True).stdout.split()
+    files = [f for f in files if (root / f).exists()]
+    missing = [f for f in files if NOTICE not in "".join((root / f).read_text().splitlines(keepends=True)[:3])]
+    assert files and not missing, missing
+    for name in ("LICENSE", "TERMS.md", "PRIVACY.md", "SECURITY.md", "THIRD_PARTY_NOTICES.md", "CITATION.cff"):
+        assert (root / name).is_file(), name
+    assert "All rights reserved" in (root / "LICENSE").read_text()
+
+
+def test_copyright_deposit_pdf(tmp_path):
+    import sys
+
+    root = Path(__file__).parents[1]
+    sys.path.insert(0, str(root / "scripts"))
+    import copyright_deposit as D
+
+    out = tmp_path / "deposit.pdf"
+    n = D.build(out, files=[root / "sarcompare" / "notes.py"])
+    assert n >= 1 and out.read_bytes()[:4] == b"%PDF"
+    assert "[U+1F6F0]" in D._printable("\N{SATELLITE}")  # emoji kept as their code, not lost

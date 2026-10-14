@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Self-contained HTML report (figures embedded, light/dark aware)."""
 
 from __future__ import annotations

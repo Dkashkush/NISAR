@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 import json
 from pathlib import Path
 
@@ -128,3 +129,17 @@ def test_summary_leads_with_a_confirmed_area():
     res = SimpleNamespace(comparison=c, nisar_rate=rm, s1_rate=s1, reference=SimpleNamespace(mode="area"))
     first = plain_summary(res)[0][1]
     assert "sinking" in first and "25.3 cm" in first and "Both satellites see it" in first
+
+
+def test_results_record_the_software_that_made_them(demo_cfg):
+    """Result files carry provenance: software, version and copyright (not a claim on the data)."""
+    import rasterio
+
+    result = Pipeline(demo_cfg, on_event=lambda e: None).run(download=False)
+    with rasterio.open(result.outputs["nisar_vertical_rate_m_per_yr"]) as src:
+        tags = src.tags()
+    assert tags["SOFTWARE"].startswith("OpenSAR Explorer") and "Deepa Kumari" in tags["SOFTWARE_COPYRIGHT"]
+    metrics = json.loads(Path(result.outputs["metrics"]).read_text())
+    assert metrics["software"]["software"].startswith("OpenSAR Explorer")
+    png = (Path(result.outputs["report"]).parent / "figures" / "rate_maps.png").read_bytes()
+    assert b"OpenSAR Explorer" in png

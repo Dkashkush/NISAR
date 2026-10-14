@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Ordering Sentinel-1 interferograms from ASF HyP3 (with a fake HyP3 API) and reading the results."""
 
 import io

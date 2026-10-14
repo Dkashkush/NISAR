@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Command-line interface.
 
     sarcompare demo                         # synthetic end-to-end run, no credentials needed

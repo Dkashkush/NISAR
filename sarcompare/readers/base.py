@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Shared reader utilities and the sensor-independent Interferogram container."""
 
 from __future__ import annotations

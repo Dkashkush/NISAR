@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 # Start OpenSAR Explorer (macOS / Linux). First run installs everything (a few minutes).
 set -e
 cd "$(dirname "$0")"

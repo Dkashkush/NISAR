@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Automatic EGMS Ortho download (Europe), against a fake EGMS server."""
 
 import io

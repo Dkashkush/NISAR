@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Automatic download of EGMS Ortho maps (Europe) as an independent check.
 
 The European Ground Motion Service (https://egms.land.copernicus.eu) publishes Sentinel-1 ground motion for

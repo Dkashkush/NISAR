@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Search ASF for NISAR and Sentinel-1 interferometric products and pick comparable pairs."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """LiCSAR (COMET) Sentinel-1 interferograms: lon/lat GeoTIFFs, read remotely (only the window over the area).
 
 * ``{pair}.geo.unw.tif``: unwrapped phase in radians, 0 where LiCSAR masked low coherence.

@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Sentinel-1 interferograms from LiCSAR (COMET), free and ready-made for many regions without ARIA or OPERA.
 
 LiCSAR (Lazecký et al., 2020, https://doi.org/10.3390/rs12152430) processes Sentinel-1 automatically for tectonic

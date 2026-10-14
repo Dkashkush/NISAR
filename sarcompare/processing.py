@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Put both sensors on one grid, stack pairs into mean rates, and reference them to a common point."""
 
 from __future__ import annotations

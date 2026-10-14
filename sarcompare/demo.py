@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Synthetic demo: writes fake-but-realistic NISAR GUNW and ARIA S1 GUNW files, then runs the real pipeline.
 
 The scene has a subsiding city (groundwater pumping), a landslide on a forested hillslope, tropospheric

@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Product readers. ``read_product`` dispatches on the product type."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Readers for Sentinel-1 interferometric products.
 
 Supported:

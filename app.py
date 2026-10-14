@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Streamlit entry point. Easiest: run ``sarcompare gui``; or ``streamlit run app.py``.
 
 On Streamlit Community Cloud new commits are pulled into the running app's folder, but the server keeps the

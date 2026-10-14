@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Area of interest (AOI) handling: parse bbox / WKT / GeoJSON and pick a UTM grid."""
 
 from __future__ import annotations

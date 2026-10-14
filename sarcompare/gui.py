@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """OpenSAR Explorer graphical interface: a guided, map-based web app (runs in your browser).
 
 Start it with ``sarcompare gui`` (or double-click Start-GUI.bat / start-gui.command / start-gui.sh).
@@ -23,6 +24,7 @@ STAGES = {"search": "Finding satellite data", "download": "Downloading", "load":
           "compare": "Comparing NISAR and Sentinel-1", "validate": "Checking against independent data",
           "figures": "Drawing maps", "report": "Writing the report"}
 UPLOADS = Path("data/uploads")
+REPO = "https://github.com/Dkashkush/OpenSAR-Explorer"
 NISAR_LAUNCH = date(2025, 7, 30)
 
 
@@ -112,7 +114,10 @@ def footer():
         '<a href="https://asf.alaska.edu" target="_blank">Alaska Satellite Facility</a>; GNSS from the '
         '<a href="https://geodesy.unr.edu" target="_blank">Nevada Geodetic Laboratory</a>; base maps © '
         "OpenStreetMap contributors and Esri. Results are research estimates: verify before making decisions. "
-        f"Version {code_version()}.</div>",
+        f"Version {code_version()}. "
+        f'<a href="{REPO}/blob/HEAD/TERMS.md" target="_blank">Terms of use</a> · '
+        f'<a href="{REPO}/blob/HEAD/PRIVACY.md" target="_blank">Privacy</a> · '
+        f'<a href="{REPO}/blob/HEAD/LICENSE" target="_blank">Licence</a></div>',
         unsafe_allow_html=True)
 
 
@@ -776,6 +781,11 @@ def page_help():
             "interferograms exist for parts of the world: ARIA (mainly the USA), OPERA (North America) and "
             "LiCSAR from COMET (many earthquake and volcano regions, especially from the Mediterranean to the "
             "Himalaya). The app checks all of them automatically."),
+        "Who owns the app, and can I use my results?": (
+            "OpenSAR Explorer is © 2026 Deepa Kumari, all rights reserved: the code may not be copied, changed or "
+            "redistributed without permission. You may use, publish and share the maps and reports you make, "
+            "keeping the data credits and mentioning OpenSAR Explorer. The satellite and GNSS data belong to their "
+            "providers. See the Terms of use, Privacy notice and Licence linked at the bottom of every page."),
         "Can I use EGMS in Europe?": (
             "Yes. EGMS (the EU's European Ground Motion Service) is an independent Sentinel-1 map of ground motion "
             "across Europe, calibrated with GNSS. Paste your free EGMS key under **Extra checks → EGMS maps for "

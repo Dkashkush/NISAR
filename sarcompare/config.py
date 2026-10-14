@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Run configuration, loadable from YAML."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Order Sentinel-1 interferograms from ASF HyP3, for places without ready-made ones.
 
 Sentinel-1 images almost all land every 12 days, but ready-made interferograms (ARIA, OPERA) exist only for some

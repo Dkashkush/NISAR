@@ -382,7 +382,9 @@ permission (see [LICENSE](LICENSE)). Anyone may use the hosted app at https://op
 To ask for permission, for example for teaching or research, contact [Dkashkush](https://github.com/Dkashkush).
 
 Satellite, GNSS and published data belong to their providers and are used under their licences; every report
-lists the credits.
+lists the credits ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). Using the app is subject to the
+[Terms of use](TERMS.md) and the [Privacy notice](PRIVACY.md); security problems are reported as described in
+[SECURITY.md](SECURITY.md). For the author: [how this work is protected, and the steps to take](docs/protecting-your-work.md).
 
 ## How to cite
 

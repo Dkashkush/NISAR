@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Published-results checks: unit handling, literature values, references in the report."""
 
 from dataclasses import replace

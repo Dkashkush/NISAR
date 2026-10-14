@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Reader for NISAR L2 GUNW (Geocoded UNWrapped interferogram) HDF5 products.
 
 The reader locates layers by name rather than by hard-coded path, so it tolerates the

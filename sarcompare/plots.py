@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Figures for the comparison. Each figure can be rendered in a light or dark theme."""
 
 from __future__ import annotations
@@ -205,7 +206,11 @@ def timeline(pairs_by_sensor: dict, theme="light"):
 
 def to_png(fig) -> bytes:
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=130, facecolor=fig.get_facecolor())
+    from . import provenance
+
+    p = provenance()
+    fig.savefig(buf, format="png", dpi=130, facecolor=fig.get_facecolor(),
+                metadata={"Software": p["software"], "Comment": f"Software {p['software_copyright']}"})
     plt.close(fig)
     return buf.getvalue()
 

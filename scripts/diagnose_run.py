@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Print a compact text diagnosis of a finished run (for CI logs, where the maps cannot be looked at).
 
     python scripts/diagnose_run.py outputs/central_valley

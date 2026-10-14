@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Build a ready-to-upload Hugging Face Space folder (and zip) from this repository.
 
     python scripts/make_hf_space.py          ->  dist/hf-space/  and  dist/hf-space.zip

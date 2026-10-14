@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Authenticated downloads from ASF (NASA Earthdata login)."""
 
 from __future__ import annotations

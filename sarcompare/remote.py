@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Read only the needed parts of remote HDF5/NetCDF products, without downloading whole files.
 
 A NISAR GUNW file is about 2-3 GB, but a typical study area needs only a few tens of MB of it. HDF5 files can

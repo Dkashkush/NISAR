@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Check that external data sources answer, and show how their archives are laid out (run on GitHub's servers).
 
     python scripts/probe_sources.py --tracks 28 35

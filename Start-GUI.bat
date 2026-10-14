@@ -1,4 +1,5 @@
 @echo off
+REM Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 REM Double-click to start OpenSAR Explorer (Windows). First run installs everything (a few minutes).
 cd /d "%~dp0"
 if not exist .venv\Scripts\python.exe (

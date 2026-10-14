@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 # Container for hosting the web app online (Hugging Face Spaces, Render, Fly.io, any Docker host).
 FROM python:3.11-slim
 

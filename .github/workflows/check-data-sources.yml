@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 # Checks that external data sources (LiCSAR/COMET, CEDA, EGMS) answer and shows how their archives are laid out.
 # No login or token is used. Run it: Actions tab -> "Check data sources" -> Run workflow.
 

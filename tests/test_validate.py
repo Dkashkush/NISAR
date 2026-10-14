@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 from datetime import date, timedelta
 from pathlib import Path
 

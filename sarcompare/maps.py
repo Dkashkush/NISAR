@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Interactive web maps (Leaflet via folium) for picking an area and exploring results."""
 
 from __future__ import annotations

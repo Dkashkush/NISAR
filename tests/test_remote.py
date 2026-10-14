@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Remote (HTTP range) reading gives exactly the same result as reading the downloaded file."""
 
 import threading

@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 """Quantitative comparison of two referenced rate maps on the same grid."""
 
 from __future__ import annotations
