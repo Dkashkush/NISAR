@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 # Tehran plain, Iran: fast aquifer-compaction subsidence south-west of the city.
 # Real-data example for a place WITHOUT ready-made Sentinel-1 interferograms (no ARIA or OPERA products here):
 # the run measures ground motion with NISAR alone, and `sarcompare hyp3 examples/tehran.yaml --order` orders

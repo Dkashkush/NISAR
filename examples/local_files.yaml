@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 # Use products you already have: NISAR GUNW .h5 files, plus Sentinel-1 HyP3 InSAR zips ordered in ASF Vertex
 # (works anywhere on Earth), ARIA GUNW .nc or OPERA DISP-S1 .nc files.
 name: my_area

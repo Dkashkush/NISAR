@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Deepa Kumari. All rights reserved. See LICENSE.
 # Mexico City: one of the fastest-subsiding cities on Earth (groundwater extraction from a lake-bed aquifer).
 # Real-data example. Needs a free NASA Earthdata login (see README) and downloads several GB.
 name: mexico_city
